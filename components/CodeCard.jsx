@@ -24,7 +24,7 @@ export default function CodeCard({ code, onDelete }) {
     : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30';
 
   return (
-    <div className="bg-[#1a1a2e] border border-[#2e2e4a] rounded-2xl p-4 flex flex-col gap-3 hover:border-[#6c63ff] transition-colors group">
+    <div className="bg-[#f2f1eb] border border-[#c0bfb9] rounded-2xl p-4 flex flex-col gap-3 hover:border-[#2a3b19] transition-colors group">
       {/* Preview */}
       <div className="bg-white rounded-xl flex items-center justify-center p-3 aspect-square overflow-hidden">
         <img
@@ -41,13 +41,13 @@ export default function CodeCard({ code, onDelete }) {
             {code.type === 'qr' ? 'QR' : code.format}
           </span>
         </div>
-        <p className="text-sm text-white font-semibold truncate" title={code.label}>
+        <p className="text-sm text-[#1c2410] font-semibold truncate" title={code.label}>
           {code.label || code.content}
         </p>
-        <p className="text-xs text-[#9090b0] mt-0.5 truncate" title={code.content}>
+        <p className="text-xs text-[#546048] mt-0.5 truncate" title={code.content}>
           {code.content}
         </p>
-        <p className="text-xs text-[#9090b0] mt-1">
+        <p className="text-xs text-[#546048] mt-1">
           {new Date(code.createdAt).toLocaleDateString('en-GB', {
             day: 'numeric', month: 'short', year: 'numeric',
           })}
@@ -58,14 +58,14 @@ export default function CodeCard({ code, onDelete }) {
       <div className="flex gap-2 pt-1">
         <button
           onClick={download}
-          className="flex-1 py-2 rounded-lg text-xs font-bold bg-[#242438] text-[#9090b0] hover:text-white hover:bg-[#6c63ff] transition-all"
+          className="flex-1 py-2 rounded-lg text-xs font-bold bg-[#e8e7e1] text-[#546048] hover:text-white hover:bg-[#2a3b19] transition-all"
         >
           Download
         </button>
         <button
           onClick={handleDelete}
           disabled={deleting}
-          className="py-2 px-3 rounded-lg text-xs font-bold bg-[#242438] text-[#9090b0] hover:text-red-400 hover:bg-red-500/10 transition-all disabled:opacity-40"
+          className="py-2 px-3 rounded-lg text-xs font-bold bg-[#e8e7e1] text-[#546048] hover:text-red-400 hover:bg-red-500/10 transition-all disabled:opacity-40"
         >
           {deleting ? '…' : '🗑'}
         </button>

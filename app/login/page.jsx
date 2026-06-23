@@ -37,11 +37,11 @@ export default function LoginPage() {
 
         <div className="text-center mb-8">
           <Link href="/" className="text-3xl">⬛</Link>
-          <h1 className="text-2xl font-extrabold text-white mt-3">Welcome back</h1>
-          <p className="text-[#9090b0] mt-1 text-sm">Log in to your account</p>
+          <h1 className="text-2xl font-extrabold text-[#1c2410] mt-3">Welcome back</h1>
+          <p className="text-[#546048] mt-1 text-sm">Log in to your account</p>
         </div>
 
-        <div className="bg-[#1a1a2e] border border-[#2e2e4a] rounded-2xl p-8">
+        <div className="bg-[#f2f1eb] border border-[#c0bfb9] rounded-2xl p-8">
           <form onSubmit={handleSubmit} className="flex flex-col gap-5">
 
             <div>
@@ -77,15 +77,15 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 rounded-xl font-bold text-white bg-gradient-to-r from-[#6c63ff] to-[#574fd6] hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed mt-1"
+              className="w-full py-3 rounded-xl font-bold text-white bg-gradient-to-r from-[#2a3b19] to-[#1e2d12] hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed mt-1"
             >
               {loading ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
 
-          <p className="text-center text-sm text-[#9090b0] mt-6">
+          <p className="text-center text-sm text-[#546048] mt-6">
             Don&apos;t have an account?{' '}
-            <Link href="/register" className="text-[#6c63ff] hover:underline font-semibold">
+            <Link href="/register" className="text-[#2a3b19] hover:underline font-semibold">
               Sign up free
             </Link>
           </p>

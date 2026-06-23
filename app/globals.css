@@ -3,20 +3,20 @@
 @tailwind utilities;
 
 :root {
-  --bg: #0f0f1a;
-  --surface: #1a1a2e;
-  --surface2: #242438;
-  --border: #2e2e4a;
-  --primary: #6c63ff;
-  --secondary: #03d6c0;
-  --soft: #9090b0;
+  --bg: #dddcd7;
+  --surface: #f2f1eb;
+  --surface2: #e8e7e1;
+  --border: #c0bfb9;
+  --primary: #2a3b19;
+  --secondary: #7ab648;
+  --soft: #546048;
 }
 
 * { box-sizing: border-box; }
 
 body {
   background: var(--bg);
-  color: #e8e8f0;
+  color: #1c2410;
   font-family: 'Segoe UI', system-ui, sans-serif;
   min-height: 100vh;
 }
@@ -31,7 +31,7 @@ body {
 input, textarea, select {
   background: var(--surface2);
   border: 1px solid var(--border);
-  color: #e8e8f0;
+  color: #1c2410;
   border-radius: 10px;
   padding: 11px 14px;
   width: 100%;

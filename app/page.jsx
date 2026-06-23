@@ -1,12 +1,12 @@
 import Link from 'next/link';
 
 const features = [
-  { icon: '⬛', title: 'QR Codes', desc: 'Generate QR codes for URLs, text, emails, Wi-Fi, phone numbers, and vCards.' },
-  { icon: '▌▌▌', title: 'Barcodes', desc: 'Support for CODE128, EAN-13, UPC-A, CODE39, ITF-14 and more.' },
-  { icon: '🎨', title: 'Custom Styling', desc: 'Choose colours, size, error correction, and label options.' },
-  { icon: '💾', title: 'Save History', desc: 'Every code you generate is saved to your personal dashboard.' },
-  { icon: '⬇️', title: 'Export', desc: 'Download as PNG or SVG, or copy directly to clipboard.' },
-  { icon: '🔒', title: 'Private', desc: 'Your codes are private and only visible to you.' },
+  { icon: '🎟', title: 'Free RSVP Ticketing', desc: 'Create events and collect RSVPs instantly. Every guest gets a unique ticket code.' },
+  { icon: '🖼', title: 'Avatar Cards', desc: 'Guests upload their photo and get a personalised event card to share on social media.' },
+  { icon: '🔗', title: 'Shareable Event Link', desc: 'Each event gets a unique code and link. Share it anywhere — no app required for guests.' },
+  { icon: '⬛', title: 'QR & Barcodes', desc: 'Generate QR codes for URLs, Wi-Fi, vCards, emails and barcodes in a dozen formats.' },
+  { icon: '✅', title: 'Check-in Management', desc: 'Mark attendees as checked in from your dashboard. Export the guest list as CSV.' },
+  { icon: '🔒', title: 'Private Dashboard', desc: 'Your events, codes and attendees are private — only you can see them.' },
 ];
 
 export default function Home() {
@@ -15,27 +15,27 @@ export default function Home() {
 
       {/* Hero */}
       <div className="text-center mb-24">
-        <div className="inline-block px-4 py-1.5 rounded-full border border-[#2e2e4a] text-sm text-[#9090b0] mb-6">
-          Free · No ads · Your codes, your data
+        {/* Logo */}
+        <div className="flex justify-center mb-8">
+          <img src="/logo.png" alt="Mode Events" className="h-40 w-auto" />
         </div>
-        <h1 className="text-5xl md:text-7xl font-extrabold leading-tight mb-6">
-          <span className="grad-text">QR & Barcode</span>
-          <br />
-          <span className="text-white">Generator</span>
+
+        <h1 className="text-5xl md:text-6xl font-extrabold leading-tight mb-5 text-[#1c2410]">
+          Events, made <span className="grad-text">beautifully</span> simple.
         </h1>
-        <p className="text-xl text-[#9090b0] max-w-xl mx-auto mb-10">
-          Create, customise, and save QR codes and barcodes instantly. Sign up free to keep a personal history of all your codes.
+        <p className="text-xl text-[#546048] max-w-2xl mx-auto mb-10 leading-relaxed">
+          Create events, collect free RSVPs, generate personalised avatar cards for your guests, and manage check-ins — all in one place.
         </p>
         <div className="flex gap-4 justify-center flex-wrap">
           <Link
             href="/register"
-            className="px-8 py-3.5 rounded-xl font-bold text-white bg-gradient-to-r from-[#6c63ff] to-[#574fd6] hover:opacity-90 transition-opacity text-lg"
+            className="px-8 py-3.5 rounded-xl font-bold text-white bg-gradient-to-r from-[#2a3b19] to-[#1e2d12] hover:opacity-90 transition-opacity text-lg"
           >
             Get started free
           </Link>
           <Link
             href="/login"
-            className="px-8 py-3.5 rounded-xl font-bold border border-[#2e2e4a] text-[#9090b0] hover:text-white hover:border-[#6c63ff] transition-all text-lg"
+            className="px-8 py-3.5 rounded-xl font-bold border border-[#c0bfb9] text-[#546048] hover:text-[#2a3b19] hover:border-[#2a3b19] transition-all text-lg"
           >
             Log in
           </Link>
@@ -43,30 +43,33 @@ export default function Home() {
       </div>
 
       {/* Features grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-24">
         {features.map((f) => (
           <div
             key={f.title}
-            className="bg-[#1a1a2e] border border-[#2e2e4a] rounded-2xl p-6 hover:border-[#6c63ff] transition-colors"
+            className="bg-[#f2f1eb] border border-[#c0bfb9] rounded-2xl p-6 hover:border-[#2a3b19] transition-colors"
           >
             <div className="text-3xl mb-4">{f.icon}</div>
-            <h3 className="font-bold text-lg text-white mb-2">{f.title}</h3>
-            <p className="text-[#9090b0] text-sm leading-relaxed">{f.desc}</p>
+            <h3 className="font-bold text-lg text-[#1c2410] mb-2">{f.title}</h3>
+            <p className="text-[#546048] text-sm leading-relaxed">{f.desc}</p>
           </div>
         ))}
       </div>
 
-      {/* CTA strip */}
-      <div className="mt-24 rounded-2xl bg-gradient-to-r from-[#6c63ff] to-[#03d6c0] p-px">
-        <div className="bg-[#0f0f1a] rounded-2xl p-10 text-center">
-          <h2 className="text-3xl font-extrabold text-white mb-3">Ready to create your first code?</h2>
-          <p className="text-[#9090b0] mb-6">Takes 30 seconds to sign up. No credit card required.</p>
-          <Link
-            href="/register"
-            className="inline-block px-8 py-3.5 rounded-xl font-bold text-white bg-gradient-to-r from-[#6c63ff] to-[#574fd6] hover:opacity-90 transition-opacity"
-          >
-            Create free account
-          </Link>
+      {/* CTA */}
+      <div className="rounded-3xl overflow-hidden bg-[#2a3b19]">
+        <div className="px-10 py-14 text-center flex flex-col items-center gap-6">
+          <img src="/logo.png" alt="Mode Events" className="h-16 w-auto" />
+          <div>
+            <h2 className="text-3xl font-extrabold text-[#dddcd7] mb-2">Ready to host your next event?</h2>
+            <p className="text-[#7a9268] mb-6">Free to use. No credit card required.</p>
+            <Link
+              href="/register"
+              className="inline-block px-8 py-3.5 rounded-xl font-bold text-[#2a3b19] bg-[#dddcd7] hover:opacity-90 transition-opacity"
+            >
+              Create free account
+            </Link>
+          </div>
         </div>
       </div>
     </div>

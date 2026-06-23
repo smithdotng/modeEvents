@@ -172,7 +172,7 @@ export default function Generator() {
     <div className="mb-4">
       <div className="flex justify-between mb-1">
         <label style={{ marginBottom: 0 }}>{lbl}</label>
-        <span className="text-[#6c63ff] text-sm font-bold">{value}{suffix}</span>
+        <span className="text-[#2a3b19] text-sm font-bold">{value}{suffix}</span>
       </div>
       <input type="range" min={min} max={max} step={step} value={value} onChange={onChange} className="w-full" />
     </div>
@@ -183,7 +183,7 @@ export default function Generator() {
       <label>{lbl}</label>
       <div className="flex items-center gap-3">
         <input type="color" value={value} onChange={onChange} className="!w-10 !h-10 !p-1" />
-        <span className="text-sm text-[#9090b0] font-mono">{value}</span>
+        <span className="text-sm text-[#546048] font-mono">{value}</span>
       </div>
     </div>
   );
@@ -191,21 +191,21 @@ export default function Generator() {
   return (
     <div className="max-w-6xl mx-auto px-4 py-10">
       <div className="mb-8 text-center">
-        <h1 className="text-3xl font-extrabold text-white mb-1">Generate a Code</h1>
-        <p className="text-[#9090b0]">Customise, preview, then save or download.</p>
+        <h1 className="text-3xl font-extrabold text-[#1c2410] mb-1">Generate a Code</h1>
+        <p className="text-[#546048]">Customise, preview, then save or download.</p>
       </div>
 
       {/* Mode toggle */}
       <div className="flex justify-center mb-8">
-        <div className="flex bg-[#1a1a2e] border border-[#2e2e4a] rounded-full p-1 gap-1">
+        <div className="flex bg-[#f2f1eb] border border-[#c0bfb9] rounded-full p-1 gap-1">
           {['qr', 'barcode'].map((m) => (
             <button
               key={m}
               onClick={() => { setMode(m); setPreviewURL(null); setError(''); setSaved(false); }}
               className={`px-8 py-2.5 rounded-full font-bold text-sm transition-all ${
                 mode === m
-                  ? 'bg-gradient-to-r from-[#6c63ff] to-[#574fd6] text-white'
-                  : 'text-[#9090b0] hover:text-white'
+                  ? 'bg-gradient-to-r from-[#2a3b19] to-[#1e2d12] text-[#1c2410]'
+                  : 'text-[#546048] hover:text-white'
               }`}
             >
               {m === 'qr' ? '⬛ QR Code' : '▌▌▌ Barcode'}
@@ -217,8 +217,8 @@ export default function Generator() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
         {/* ── Controls ── */}
-        <div className="bg-[#1a1a2e] border border-[#2e2e4a] rounded-2xl p-6 flex flex-col gap-4">
-          <p className="text-xs font-bold text-[#9090b0] uppercase tracking-widest">Settings</p>
+        <div className="bg-[#f2f1eb] border border-[#c0bfb9] rounded-2xl p-6 flex flex-col gap-4">
+          <p className="text-xs font-bold text-[#546048] uppercase tracking-widest">Settings</p>
 
           {/* QR Controls */}
           {mode === 'qr' && (
@@ -231,8 +231,8 @@ export default function Generator() {
                     onClick={() => { setQrType(key); setQrFields({}); }}
                     className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-all ${
                       qrType === key
-                        ? 'bg-[#6c63ff] border-[#6c63ff] text-white'
-                        : 'border-[#2e2e4a] text-[#9090b0] hover:text-white'
+                        ? 'bg-[#2a3b19] border-[#2a3b19] text-[#1c2410]'
+                        : 'border-[#c0bfb9] text-[#546048] hover:text-white'
                     }`}
                   >{lbl}</button>
                 ))}
@@ -263,7 +263,7 @@ export default function Generator() {
                 <Field label="Organisation" id="vorg" placeholder="Acme Ltd" value={qrFields.vorg || ''} onChange={setQF('vorg')} />
               </>}
 
-              <hr className="border-[#2e2e4a]" />
+              <hr className="border-[#c0bfb9]" />
 
               <div className="grid grid-cols-2 gap-4">
                 <ColorRow label="Foreground" value={qrOpts.fg} onChange={setQO('fg')} />
@@ -273,7 +273,7 @@ export default function Generator() {
               <div className="mb-4">
                 <div className="flex justify-between mb-1">
                   <label style={{ marginBottom: 0 }}>Error correction</label>
-                  <span className="text-[#6c63ff] text-sm font-bold">{EC_LEVELS[qrOpts.ec]}</span>
+                  <span className="text-[#2a3b19] text-sm font-bold">{EC_LEVELS[qrOpts.ec]}</span>
                 </div>
                 <input type="range" min={0} max={3} step={1} value={qrOpts.ec} onChange={setQO('ec')} className="w-full" />
               </div>
@@ -291,7 +291,7 @@ export default function Generator() {
               </div>
               <Field label="Content" id="bc-content" placeholder="Enter value…" value={bcContent} onChange={(e) => setBcContent(e.target.value)} />
 
-              <hr className="border-[#2e2e4a]" />
+              <hr className="border-[#c0bfb9]" />
 
               <div className="grid grid-cols-2 gap-4">
                 <ColorRow label="Bar colour" value={bcOpts.fg} onChange={setBO('fg')} />
@@ -314,24 +314,24 @@ export default function Generator() {
 
           <button
             onClick={mode === 'qr' ? generateQR : generateBarcode}
-            className="w-full py-3.5 rounded-xl font-bold text-white bg-gradient-to-r from-[#6c63ff] to-[#574fd6] hover:opacity-90 transition-opacity mt-2"
+            className="w-full py-3.5 rounded-xl font-bold text-white bg-gradient-to-r from-[#2a3b19] to-[#1e2d12] hover:opacity-90 transition-opacity mt-2"
           >
             ⚡ Generate {mode === 'qr' ? 'QR Code' : 'Barcode'}
           </button>
         </div>
 
         {/* ── Preview ── */}
-        <div className="bg-[#1a1a2e] border border-[#2e2e4a] rounded-2xl p-6 flex flex-col">
-          <p className="text-xs font-bold text-[#9090b0] uppercase tracking-widest mb-4">Preview</p>
+        <div className="bg-[#f2f1eb] border border-[#c0bfb9] rounded-2xl p-6 flex flex-col">
+          <p className="text-xs font-bold text-[#546048] uppercase tracking-widest mb-4">Preview</p>
 
           {/* Hidden SVG for barcode rendering */}
           <svg ref={svgRef} className="hidden" />
 
-          <div className={`flex-1 flex items-center justify-center rounded-xl min-h-[260px] transition-colors ${previewURL ? 'bg-white' : 'bg-[#242438] border-2 border-dashed border-[#2e2e4a]'}`}>
+          <div className={`flex-1 flex items-center justify-center rounded-xl min-h-[260px] transition-colors ${previewURL ? 'bg-white' : 'bg-[#e8e7e1] border-2 border-dashed border-[#c0bfb9]'}`}>
             {previewURL ? (
               <img src={previewURL} alt="Generated code" className="max-w-full max-h-72 object-contain p-4" />
             ) : (
-              <div className="text-center text-[#9090b0]">
+              <div className="text-center text-[#546048]">
                 <p className="text-5xl mb-3 opacity-30">⬛</p>
                 <p className="text-sm">Press Generate to preview</p>
               </div>
@@ -343,7 +343,7 @@ export default function Generator() {
             <button
               onClick={download}
               disabled={!previewURL}
-              className="flex-1 py-3 rounded-xl font-bold text-sm bg-[#242438] text-[#9090b0] hover:text-white hover:bg-[#2e2e4a] transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+              className="flex-1 py-3 rounded-xl font-bold text-sm bg-[#e8e7e1] text-[#546048] hover:text-white hover:bg-[#c0bfb9] transition-all disabled:opacity-30 disabled:cursor-not-allowed"
             >
               ⬇ Download PNG
             </button>
@@ -353,7 +353,7 @@ export default function Generator() {
               className={`flex-1 py-3 rounded-xl font-bold text-sm transition-all disabled:cursor-not-allowed ${
                 saved
                   ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                  : 'bg-[#6c63ff]/20 text-[#6c63ff] border border-[#6c63ff]/30 hover:bg-[#6c63ff] hover:text-white disabled:opacity-30'
+                  : 'bg-[#2a3b19]/20 text-[#2a3b19] border border-[#2a3b19]/30 hover:bg-[#2a3b19] hover:text-white disabled:opacity-30'
               }`}
             >
               {saved ? '✓ Saved to dashboard' : saving ? 'Saving…' : '💾 Save to account'}

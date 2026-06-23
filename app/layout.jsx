@@ -3,8 +3,8 @@ import Providers from '@/components/Providers';
 import Navbar from '@/components/Navbar';
 
 export const metadata = {
-  title: 'QR & Barcode Generator',
-  description: 'Create, customise and save QR codes and barcodes.',
+  title: 'Mode Events',
+  description: 'Create events, collect RSVPs, generate QR codes and personalised avatar cards.',
 };
 
 export default function RootLayout({ children }) {

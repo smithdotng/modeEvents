@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #0f0f1a;
+  --surface: #1a1a2e;
+  --surface2: #242438;
+  --border: #2e2e4a;
+  --primary: #6c63ff;
+  --secondary: #03d6c0;
+  --soft: #9090b0;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: #e8e8f0;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--surface); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--primary); }
+
+/* Form inputs */
+input, textarea, select {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: #e8e8f0;
+  border-radius: 10px;
+  padding: 11px 14px;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.2s;
+  font-family: inherit;
+  font-size: 0.95rem;
+}
+input:focus, textarea:focus, select:focus {
+  border-color: var(--primary);
+}
+input::placeholder, textarea::placeholder {
+  color: var(--soft);
+}
+select option { background: var(--surface2); }
+
+label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--soft);
+  margin-bottom: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Gradient text utility */
+.grad-text {
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Range slider accent */
+input[type="range"] { accent-color: var(--primary); padding: 0; }
+
+/* Checkbox accent */
+input[type="checkbox"] { accent-color: var(--primary); width: auto; }
+
+/* Color picker */
+input[type="color"] {
+  width: 40px;
+  height: 40px;
+  padding: 3px;
+  cursor: pointer;
+  border-radius: 8px;
+}

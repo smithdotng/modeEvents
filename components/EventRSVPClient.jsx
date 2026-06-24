@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import AvatarCompositor from '@/components/AvatarCompositor';
+import QRTicket from '@/components/QRTicket';
 
 export default function EventRSVPClient({ code }) {
   const [event, setEvent] = useState(null);
@@ -94,10 +95,16 @@ export default function EventRSVPClient({ code }) {
           <h1 className="text-3xl font-extrabold text-[#1c2410]">You&apos;re in!</h1>
           <p className="text-[#546048]">Your RSVP for <strong className="text-[#1c2410]">{event.title}</strong> has been confirmed.</p>
 
-          <div className="bg-[#f2f1eb] border border-[#c0bfb9] rounded-2xl p-6">
-            <p className="text-xs text-[#546048] uppercase tracking-widest mb-2">Your ticket code</p>
-            <p className="text-3xl font-extrabold font-mono grad-text">{result.ticketCode}</p>
-            <p className="text-xs text-[#546048] mt-2">Save this — you&apos;ll need it at the door.</p>
+          {/* QR Ticket */}
+          <div className="text-left space-y-2">
+            <p className="text-sm font-semibold text-[#546048] text-center">Your entry ticket — show this at the door</p>
+            <QRTicket
+              ticketCode={result.ticketCode}
+              guestName={form.name}
+              eventTitle={event.title}
+              eventDate={event.date}
+              eventVenue={event.venue}
+            />
           </div>
 
           {result.compositeImage && (
@@ -110,7 +117,7 @@ export default function EventRSVPClient({ code }) {
                   download={`${event.title.replace(/\s+/g, '-')}-card.png`}
                   className="flex-1 text-center py-3 rounded-xl font-bold text-sm text-white bg-[#2a3b19] hover:opacity-90 transition-opacity"
                 >
-                  ⬇ Download
+                  ⬇ Download Card
                 </a>
                 <button
                   onClick={shareCard}

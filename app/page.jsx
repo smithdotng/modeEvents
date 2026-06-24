@@ -1,5 +1,22 @@
 import Link from 'next/link';
 
+export const metadata = {
+  title: 'Mode Events — Events, made beautifully simple.',
+  description: 'Create events, collect free RSVPs, generate personalised avatar cards for your guests, and manage check-ins — all in one place.',
+  openGraph: {
+    title: 'Mode Events',
+    description: 'Create events, collect free RSVPs, generate personalised avatar cards for your guests, and manage check-ins — all in one place.',
+    images: [{ url: '/logo.png', width: 512, height: 512, alt: 'Mode Events' }],
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Mode Events',
+    description: 'Create events, collect free RSVPs, generate personalised avatar cards for your guests, and manage check-ins.',
+    images: ['/logo.png'],
+  },
+};
+
 const features = [
   { icon: '🎟', title: 'Free RSVP Ticketing', desc: 'Create events and collect RSVPs instantly. Every guest gets a unique ticket code.' },
   { icon: '🖼', title: 'Avatar Cards', desc: 'Guests upload their photo and get a personalised event card to share on social media.' },

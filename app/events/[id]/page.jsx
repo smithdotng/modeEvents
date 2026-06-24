@@ -5,6 +5,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import BroadcastModal from '@/components/BroadcastModal';
 import MessageModal from '@/components/MessageModal';
+import EditEventPanel from '@/components/EditEventPanel';
 
 // Dynamically import scanner (uses camera/jsQR — no SSR needed)
 const QRScanner = dynamic(() => import('@/components/QRScanner'), { ssr: false });
@@ -25,9 +26,10 @@ export default function ManageEventPage() {
   const [tab, setTab] = useState('overview');
   const [search, setSearch] = useState('');
 
-  // Modals
+  // Modals + edit mode
   const [showBroadcast, setShowBroadcast] = useState(false);
-  const [messageTarget, setMessageTarget] = useState(null); // attendee object
+  const [messageTarget, setMessageTarget] = useState(null);
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -163,19 +165,55 @@ export default function ManageEventPage() {
 
       {/* ── Overview ── */}
       {tab === 'overview' && (
-        <div className="bg-[#f2f1eb] border border-[#c0bfb9] rounded-2xl p-6 space-y-5">
-          {event.description && <p className="text-[#546048] leading-relaxed">{event.description}</p>}
-          {event.address && <p className="text-sm text-[#546048]">📍 {event.address}</p>}
-          {event.coverImage && (
-            <div>
-              <p className="text-xs font-bold text-[#546048] uppercase tracking-widest mb-2">Cover</p>
-              <img src={event.coverImage} alt="cover" className="w-full rounded-xl object-cover aspect-square max-w-sm" />
-            </div>
-          )}
-          {event.frameImage && (
-            <div>
-              <p className="text-xs font-bold text-[#546048] uppercase tracking-widest mb-2">Avatar frame</p>
-              <img src={event.frameImage} alt="frame" className="w-48 rounded-xl" />
+        <div className="bg-[#f2f1eb] border border-[#c0bfb9] rounded-2xl p-6">
+          {editing ? (
+            <EditEventPanel
+              event={event}
+              onSave={updated => { setEvent(updated); setEditing(false); }}
+              onCancel={() => setEditing(false)}
+            />
+          ) : (
+            <div className="space-y-5">
+              {/* Edit button */}
+              <div className="flex justify-end">
+                <button
+                  onClick={() => setEditing(true)}
+                  className="px-4 py-2 rounded-xl text-sm font-bold border border-[#c0bfb9] text-[#546048] hover:border-[#2a3b19] hover:text-[#2a3b19] transition-all"
+                >
+                  ✏️ Edit details
+                </button>
+              </div>
+
+              {event.description ? (
+                <p className="text-[#546048] leading-relaxed">{event.description}</p>
+              ) : (
+                <p className="text-[#c0bfb9] text-sm italic">No description yet — click Edit details to add one.</p>
+              )}
+
+              {event.address && <p className="text-sm text-[#546048]">📍 {event.address}</p>}
+
+              {event.coverImage && (
+                <div>
+                  <p className="text-xs font-bold text-[#546048] uppercase tracking-widest mb-2">Cover image</p>
+                  <img src={event.coverImage} alt="cover" className="w-full rounded-xl object-cover aspect-square max-w-sm" />
+                </div>
+              )}
+
+              {event.frameImage ? (
+                <div>
+                  <p className="text-xs font-bold text-[#546048] uppercase tracking-widest mb-2">Avatar frame</p>
+                  <img src={event.frameImage} alt="frame" className="w-48 rounded-xl border border-[#c0bfb9]" />
+                  {event.frameZone?.w > 0 && (
+                    <p className="text-xs text-[#546048] mt-1">
+                      Zone: {event.frameZone.w.toFixed(0)}% × {event.frameZone.h.toFixed(0)}%
+                      at ({event.frameZone.x.toFixed(0)}%, {event.frameZone.y.toFixed(0)}%)
+                      · {event.frameZone.shape || 'rect'}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-[#c0bfb9] text-sm italic">No avatar frame yet — click Edit details to upload one.</p>
+              )}
             </div>
           )}
         </div>

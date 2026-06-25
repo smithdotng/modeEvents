@@ -51,10 +51,35 @@ export async function POST(req, { params }) {
     message: 'RSVP confirmed!',
     ticketCode: attendee.ticketCode,
     compositeImage: attendee.compositeImage,
+    attendeeId: attendee._id,
     attendee: {
       name: attendee.name,
       email: attendee.email,
       ticketCode: attendee.ticketCode,
     },
   }, { status: 201 });
+}
+
+// PATCH /api/public/[code]/rsvp — save avatar composite after RSVP
+// body: { ticketCode, compositeImage }
+export async function PATCH(req, { params }) {
+  await connectDB();
+
+  const event = await Event.findOne({ uniqueCode: params.code.toUpperCase() }).lean();
+  if (!event) return NextResponse.json({ error: 'Event not found.' }, { status: 404 });
+
+  const { ticketCode, compositeImage } = await req.json();
+  if (!ticketCode || !compositeImage) {
+    return NextResponse.json({ error: 'ticketCode and compositeImage are required.' }, { status: 400 });
+  }
+
+  const attendee = await Attendee.findOneAndUpdate(
+    { ticketCode: ticketCode.toUpperCase(), eventId: event._id },
+    { compositeImage },
+    { new: true }
+  );
+
+  if (!attendee) return NextResponse.json({ error: 'Attendee not found.' }, { status: 404 });
+
+  return NextResponse.json({ ok: true });
 }

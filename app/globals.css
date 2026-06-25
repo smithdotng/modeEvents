@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@100;200;300;400;500;600;700;800;900&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -17,7 +19,7 @@
 body {
   background: var(--bg);
   color: #1c2410;
-  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-family: 'Outfit', 'Segoe UI', system-ui, sans-serif;
   min-height: 100vh;
 }
 
@@ -65,6 +67,30 @@ label {
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
+
+/* ── Scroll progress bar (right edge, SAFacilities style) ─────────── */
+.me-progress-track {
+  position: fixed;
+  z-index: 100;
+  top: 0;
+  right: 0;
+  width: 3px;
+  height: 100%;
+  background-color: rgba(42, 59, 25, 0.1);
+  pointer-events: none;
+}
+.me-progress {
+  width: 3px;
+  height: 0%;
+  background: linear-gradient(to bottom, var(--primary), #7ab648);
+}
+@media (max-width: 992px) {
+  .me-progress-track { display: none; }
+}
+
+/* ── mil-up initial state (GSAP sets opacity/y immediately on mount) ── */
+/* Elements start visible for SSR; GSAP hides then animates them in.    */
+.mil-up { will-change: opacity, transform; }
 
 /* Range slider accent */
 input[type="range"] { accent-color: var(--primary); padding: 0; }

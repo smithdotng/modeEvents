@@ -25,6 +25,7 @@ const EventSchema = new mongoose.Schema(
     },
 
     // Avatar / photo-composite feature
+    avatarsEnabled: { type: Boolean, default: false }, // host opt-in
     frameImage: { type: String, default: '' },   // base64 template image
     frameZone: {
       x: { type: Number, default: 10 },   // % from left
@@ -39,6 +40,9 @@ const EventSchema = new mongoose.Schema(
       enum: ['draft', 'published', 'cancelled'],
       default: 'published',
     },
+
+    // Admin-curated featured flag — shown on the public landing page
+    featured: { type: Boolean, default: false, index: true },
   },
   { timestamps: true }
 );

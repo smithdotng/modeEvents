@@ -3,11 +3,12 @@ import { useState } from 'react';
 import FrameZoneSelector from '@/components/FrameZoneSelector';
 
 export default function EditEventPanel({ event, onSave, onCancel }) {
-  const [description, setDescription] = useState(event.description || '');
-  const [frameImage, setFrameImage] = useState(event.frameImage || '');
-  const [frameZone, setFrameZone]   = useState(event.frameZone  || null);
-  const [saving, setSaving]         = useState(false);
-  const [error, setError]           = useState('');
+  const [description, setDescription]     = useState(event.description || '');
+  const [avatarsEnabled, setAvatarsEnabled] = useState(!!event.avatarsEnabled);
+  const [frameImage, setFrameImage]       = useState(event.frameImage || '');
+  const [frameZone, setFrameZone]         = useState(event.frameZone  || null);
+  const [saving, setSaving]               = useState(false);
+  const [error, setError]                 = useState('');
 
   function handleFrameUpload(e) {
     const file = e.target.files?.[0];
@@ -27,7 +28,7 @@ export default function EditEventPanel({ event, onSave, onCancel }) {
     const res = await fetch(`/api/events/${event._id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description, frameImage, frameZone }),
+      body: JSON.stringify({ description, avatarsEnabled, frameImage, frameZone }),
     });
     const data = await res.json();
     setSaving(false);
@@ -52,14 +53,30 @@ export default function EditEventPanel({ event, onSave, onCancel }) {
         />
       </div>
 
-      {/* Avatar frame */}
-      <div>
+      {/* Avatar toggle */}
+      <div className="bg-[#e8e7e1] border border-[#c0bfb9] rounded-xl p-4 flex items-start gap-4">
+        <button
+          type="button"
+          onClick={() => setAvatarsEnabled(v => !v)}
+          className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors ${avatarsEnabled ? 'bg-[#2a3b19]' : 'bg-[#c0bfb9]'}`}
+        >
+          <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${avatarsEnabled ? 'translate-x-5' : ''}`} />
+        </button>
+        <div>
+          <p className="text-sm font-bold text-[#1c2410]">Avatar cards for guests</p>
+          <p className="text-xs text-[#546048] mt-0.5 leading-relaxed">
+            When enabled, guests can upload their photo after RSVPing and receive a personalised event card.
+          </p>
+        </div>
+      </div>
+
+      {/* Avatar frame — only shown when avatars are enabled */}
+      {avatarsEnabled && <div>
         <label className="block text-xs font-bold text-[#546048] uppercase tracking-widest mb-2">
           Avatar Frame Image
         </label>
         <p className="text-xs text-[#546048] mb-3 leading-relaxed">
           Upload a PNG frame (with transparency) and drag to set where attendee photos appear.
-          Guests who RSVP can upload their photo to get a personalised event card.
         </p>
 
         <label className="cursor-pointer flex items-center gap-3 bg-[#e8e7e1] border border-[#c0bfb9] hover:border-[#2a3b19] rounded-xl px-4 py-3 transition-colors w-fit">
@@ -92,7 +109,7 @@ export default function EditEventPanel({ event, onSave, onCancel }) {
             ✕ Remove frame image
           </button>
         )}
-      </div>
+      </div>}
 
       {/* Error */}
       {error && (

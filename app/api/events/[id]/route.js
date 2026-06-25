@@ -27,7 +27,7 @@ export async function PUT(req, { params }) {
   if (!event) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
 
   const body = await req.json();
-  const allowed = ['title','description','date','endDate','venue','address','capacity','coverImage','frameImage','frameZone','status'];
+  const allowed = ['title','description','date','endDate','venue','address','capacity','coverImage','avatarsEnabled','frameImage','frameZone','status'];
   allowed.forEach(k => { if (body[k] !== undefined) event[k] = body[k]; });
 
   await event.save();

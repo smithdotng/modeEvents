@@ -1,5 +1,11 @@
 'use client';
-import { MAX_FILE_MB, MAX_FILE_BYTES } from '@/lib/formFields';
+import { useState } from 'react';
+import {
+  MAX_FILE_MB,
+  MAX_FILE_BYTES,
+  MAX_IMAGES_DEFAULT,
+  downscaleImageFile,
+} from '@/lib/formFields';
 
 /**
  * Renders a single host-designed form field.
@@ -8,6 +14,8 @@ import { MAX_FILE_MB, MAX_FILE_BYTES } from '@/lib/formFields';
  */
 export default function FormFieldInput({ field, value, onChange, disabled = false, idPrefix = 'f' }) {
   const id = `${idPrefix}-${field.key}`;
+  const [imgBusy, setImgBusy] = useState(false);
+  const [imgError, setImgError] = useState('');
   const common = {
     id,
     disabled,
@@ -26,6 +34,46 @@ export default function FormFieldInput({ field, value, onChange, disabled = fals
     const reader = new FileReader();
     reader.onload = ev => onChange({ name: file.name, mime: file.type, dataURL: ev.target.result });
     reader.readAsDataURL(file);
+  }
+
+  const images = Array.isArray(value) ? value : [];
+  const maxImages = field.maxImages || MAX_IMAGES_DEFAULT;
+  const imagesLeft = maxImages - images.length;
+
+  async function handleImages(e) {
+    const picked = Array.from(e.target.files || []);
+    e.target.value = ''; // let the guest re-pick the same file after removing it
+    if (!picked.length) return;
+
+    setImgError('');
+    if (picked.length > imagesLeft) {
+      setImgError(
+        imagesLeft === 0
+          ? `You already have ${maxImages} image${maxImages > 1 ? 's' : ''}. Remove one to add another.`
+          : `Only ${imagesLeft} more image${imagesLeft > 1 ? 's' : ''} can be added.`
+      );
+      return;
+    }
+
+    setImgBusy(true);
+    const accepted = [];
+    const failed = [];
+    for (const file of picked) {
+      if (!file.type.startsWith('image/')) { failed.push(`${file.name} is not an image`); continue; }
+      try {
+        accepted.push(await downscaleImageFile(file));
+      } catch (err) {
+        failed.push(err.message);
+      }
+    }
+    setImgBusy(false);
+    if (accepted.length) onChange([...images, ...accepted]);
+    if (failed.length) setImgError(failed.join(' · '));
+  }
+
+  function removeImage(i) {
+    setImgError('');
+    onChange(images.filter((_, j) => j !== i));
   }
 
   function toggleChoice(opt) {
@@ -126,6 +174,74 @@ export default function FormFieldInput({ field, value, onChange, disabled = fals
               <span className="text-[#1c2410]">{o}</span>
             </label>
           ))}
+        </div>
+      )}
+
+      {field.type === 'images' && (
+        <div className="space-y-3">
+          {images.length > 0 && (
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+              {images.map((img, i) => (
+                <div key={i} className="relative group">
+                  <img
+                    src={img.dataURL}
+                    alt={img.name || `Image ${i + 1}`}
+                    className="w-full aspect-square object-cover rounded-xl border border-[#c0bfb9]"
+                  />
+                  {!disabled && (
+                    <button
+                      type="button"
+                      onClick={() => removeImage(i)}
+                      title="Remove this image"
+                      aria-label={`Remove ${img.name || `image ${i + 1}`}`}
+                      className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-[#1c2410] text-white text-xs font-bold shadow hover:bg-red-600 transition-colors"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <label
+            className={`flex items-center gap-3 bg-[#e8e7e1] border border-[#c0bfb9] rounded-xl px-4 py-3 transition-colors ${
+              disabled || imgBusy || imagesLeft <= 0
+                ? 'opacity-60 cursor-not-allowed'
+                : 'cursor-pointer hover:border-[#2a3b19]'
+            }`}
+          >
+            <span className="text-2xl flex-shrink-0">🖼</span>
+            <span className="min-w-0">
+              <span className="text-sm font-semibold text-[#1c2410] block">
+                {imgBusy
+                  ? 'Processing images…'
+                  : imagesLeft <= 0
+                    ? `Maximum of ${maxImages} reached`
+                    : images.length
+                      ? `Add more (${imagesLeft} left)`
+                      : `Choose image${maxImages > 1 ? 's' : ''}`}
+              </span>
+              <span className="text-xs text-[#546048]">
+                Up to {maxImages} · large photos are resized automatically
+              </span>
+            </span>
+            <input
+              type="file"
+              id={id}
+              accept="image/*"
+              multiple={maxImages > 1}
+              disabled={disabled || imgBusy || imagesLeft <= 0}
+              className="hidden"
+              onChange={handleImages}
+            />
+          </label>
+
+          {imgError && (
+            <p className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+              {imgError}
+            </p>
+          )}
         </div>
       )}
 

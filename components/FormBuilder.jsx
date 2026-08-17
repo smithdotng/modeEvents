@@ -7,6 +7,8 @@ import {
   PLACEHOLDER_TYPES,
   MAX_FIELDS,
   MAX_OPTIONS,
+  MAX_IMAGES_LIMIT,
+  MAX_IMAGES_DEFAULT,
   makeField,
   defaultFormFields,
   blankAnswers,
@@ -111,6 +113,7 @@ function FieldCard({ field, index, total, lockedCount, open, onToggle, onPatch, 
                     options: OPTION_TYPES.includes(type)
                       ? (field.options?.length ? field.options : ['Option 1', 'Option 2'])
                       : [],
+                    maxImages: type === 'images' ? (field.maxImages || MAX_IMAGES_DEFAULT) : 0,
                     placeholder: PLACEHOLDER_TYPES.includes(type) ? field.placeholder : '',
                   });
                 }}
@@ -153,6 +156,25 @@ function FieldCard({ field, index, total, lockedCount, open, onToggle, onPatch, 
 
           {OPTION_TYPES.includes(field.type) && (
             <OptionsEditor options={field.options || []} onChange={options => onPatch({ options })} />
+          )}
+
+          {field.type === 'images' && (
+            <div>
+              <label htmlFor={`max-img-${field.key}`}>Maximum images per guest</label>
+              <select
+                id={`max-img-${field.key}`}
+                value={field.maxImages || MAX_IMAGES_DEFAULT}
+                onChange={e => onPatch({ maxImages: Number(e.target.value) })}
+              >
+                {Array.from({ length: MAX_IMAGES_LIMIT }, (_, i) => i + 1).map(n => (
+                  <option key={n} value={n}>{n} image{n > 1 ? 's' : ''}</option>
+                ))}
+              </select>
+              <p className="text-xs text-[#546048] mt-1 normal-case">
+                Photos are resized in the guest&apos;s browser before upload. Keep this low if you
+                expect a lot of RSVPs — images are stored with each attendee record.
+              </p>
+            </div>
           )}
 
           <label

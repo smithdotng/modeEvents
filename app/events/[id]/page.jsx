@@ -11,6 +11,43 @@ import { getFormFields, formatAnswer, CORE_KEYS } from '@/lib/formFields';
 // CSV cells: escape embedded quotes so answers with punctuation survive Excel.
 const csvCell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
 
+// Renders one custom answer inside the host's expanded attendee row.
+function AnswerValue({ response: r }) {
+  if (r.type === 'images' && Array.isArray(r.value) && r.value.length) {
+    return (
+      <div className="flex flex-wrap gap-2 mt-1">
+        {r.value.map((img, i) => (
+          <a
+            key={i}
+            href={img.dataURL}
+            download={img.name || `image-${i + 1}.jpg`}
+            title={`Download ${img.name || `image ${i + 1}`}`}
+            className="block"
+          >
+            <img
+              src={img.dataURL}
+              alt={img.name || `Image ${i + 1}`}
+              className="w-16 h-16 object-cover rounded-lg border border-[#c0bfb9] hover:border-[#2a3b19] transition-colors"
+            />
+          </a>
+        ))}
+      </div>
+    );
+  }
+  if (r.type === 'file' && r.value?.dataURL) {
+    return (
+      <a
+        href={r.value.dataURL}
+        download={r.value.name || 'attachment'}
+        className="text-[#2a3b19] font-semibold hover:underline"
+      >
+        ⬇ {r.value.name || 'Download file'}
+      </a>
+    );
+  }
+  return <>{formatAnswer(r) || '—'}</>;
+}
+
 // Dynamically import scanner (uses camera/jsQR — no SSR needed)
 const QRScanner = dynamic(() => import('@/components/QRScanner'), { ssr: false });
 
@@ -359,15 +396,7 @@ export default function ManageEventPage() {
                                 <div key={r.fieldKey}>
                                   <dt className="text-xs font-bold text-[#546048] uppercase tracking-wide">{r.label}</dt>
                                   <dd className="text-sm text-[#1c2410] break-words">
-                                    {r.type === 'file' && r.value?.dataURL ? (
-                                      <a
-                                        href={r.value.dataURL}
-                                        download={r.value.name || 'attachment'}
-                                        className="text-[#2a3b19] font-semibold hover:underline"
-                                      >
-                                        ⬇ {r.value.name || 'Download file'}
-                                      </a>
-                                    ) : (formatAnswer(r) || '—')}
+                                    <AnswerValue response={r} />
                                   </dd>
                                 </div>
                               ))}
@@ -413,15 +442,7 @@ export default function ManageEventPage() {
                               <div key={r.fieldKey}>
                                 <dt className="text-[0.7rem] font-bold text-[#546048] uppercase tracking-wide">{r.label}</dt>
                                 <dd className="text-sm text-[#1c2410] break-words">
-                                  {r.type === 'file' && r.value?.dataURL ? (
-                                    <a
-                                      href={r.value.dataURL}
-                                      download={r.value.name || 'attachment'}
-                                      className="text-[#2a3b19] font-semibold hover:underline"
-                                    >
-                                      ⬇ {r.value.name || 'Download file'}
-                                    </a>
-                                  ) : (formatAnswer(r) || '—')}
+                                  <AnswerValue response={r} />
                                 </dd>
                               </div>
                             ))}

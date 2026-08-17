@@ -11,6 +11,7 @@ const FormFieldSchema = new mongoose.Schema(
     helpText: { type: String, default: '' },
     required: { type: Boolean, default: false },
     options: { type: [String], default: [] },   // select / radio / checkbox choices
+    maxImages: { type: Number, default: 0 },    // images type: how many a guest may attach
     core: { type: Boolean, default: false },    // answer maps to a real Attendee column
     locked: { type: Boolean, default: false },  // cannot be removed or retyped
   },

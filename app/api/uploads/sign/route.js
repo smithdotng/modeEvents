@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { connectDB } from '@/lib/mongodb';
 import Event from '@/models/Event';
+import { validateUploadEndpoint } from '@/lib/formFields';
 
 /**
  * POST /api/uploads/sign  { code }
@@ -27,6 +28,20 @@ export async function POST(req) {
       { status: 501 }
     );
   }
+
+  // Refuse to hand out a token that would be posted somewhere useless.
+  // Without this the browser sends the upload to whatever the variable holds —
+  // typically a hosting provider's parked page — and the guest sees a timeout
+  // with nothing indicating the real cause.
+  const check = validateUploadEndpoint(endpoint);
+  if (!check.ok) {
+    console.error('[uploads/sign] ' + check.error);
+    return NextResponse.json(
+      { error: 'Image hosting is misconfigured on this site. ' + check.error },
+      { status: 501 }
+    );
+  }
+  if (check.warning) console.warn('[uploads/sign] ' + check.warning);
 
   let code = '';
   try {

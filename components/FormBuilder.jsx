@@ -13,9 +13,35 @@ import {
   defaultFormFields,
   blankAnswers,
   remoteUploadsEnabled,
+  validateUploadEndpoint,
 } from '@/lib/formFields';
 
 const typeMeta = t => FIELD_TYPES.find(f => f.value === t) || FIELD_TYPES[0];
+
+/**
+ * Warns the host when image hosting is configured but broken. Silent when it is
+ * either working or deliberately unset — a misconfigured endpoint would
+ * otherwise only show up as a timeout in a guest's browser, where nobody who
+ * can fix it is looking.
+ */
+function UploadConfigNotice() {
+  const check = validateUploadEndpoint();
+  if (!check.configured || (!check.error && !check.warning)) return null;
+  const isError = !!check.error;
+  return (
+    <p
+      className={`text-xs mt-2 rounded-lg px-3 py-2 border normal-case ${
+        isError
+          ? 'text-red-600 bg-red-500/10 border-red-500/30'
+          : 'text-amber-700 bg-amber-500/10 border-amber-500/30'
+      }`}
+    >
+      <strong>{isError ? 'Image hosting is misconfigured.' : 'Check your image hosting setup.'}</strong>{' '}
+      {check.error || check.warning}
+      {isError && ' Until this is fixed, images are stored in the database instead.'}
+    </p>
+  );
+}
 
 /* ── Options editor (module scope so its inputs never remount) ───────────── */
 function OptionsEditor({ options, onChange }) {
@@ -176,6 +202,7 @@ function FieldCard({ field, index, total, lockedCount, open, onToggle, onPatch, 
                   ? 'Photos are resized in the guest’s browser, then stored on your file host.'
                   : 'Photos are resized in the guest’s browser and stored with each attendee record. Keep this low if you expect a lot of RSVPs.'}
               </p>
+              <UploadConfigNotice />
             </div>
           )}
 

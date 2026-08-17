@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { connectDB } from '@/lib/mongodb';
 import Event from '@/models/Event';
 import Attendee from '@/models/Attendee';
+import { normalizeFormFields } from '@/lib/formFields';
 
 // GET /api/events/[id]
 export async function GET(req, { params }) {
@@ -29,6 +30,11 @@ export async function PUT(req, { params }) {
   const body = await req.json();
   const allowed = ['title','description','date','endDate','venue','address','capacity','coverImage','avatarsEnabled','frameImage','frameZone','status'];
   allowed.forEach(k => { if (body[k] !== undefined) event[k] = body[k]; });
+
+  // The RSVP form is sanitised rather than trusted verbatim.
+  if (body.formFields !== undefined) {
+    event.formFields = normalizeFormFields(body.formFields);
+  }
 
   await event.save();
   return NextResponse.json({ event });

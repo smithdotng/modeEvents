@@ -2,6 +2,10 @@
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import FrameZoneSelector from '@/components/FrameZoneSelector';
+import FormBuilder from '@/components/FormBuilder';
+import { defaultFormFields } from '@/lib/formFields';
+
+const STEPS = ['Event Details', 'Registration Form', 'Avatar Cards'];
 
 function ImageUpload({ label, value, onChange, hint, maxMB = 1.5 }) {
   function handleFile(e) {
@@ -38,7 +42,7 @@ function ImageUpload({ label, value, onChange, hint, maxMB = 1.5 }) {
 
 export default function CreateEventPage() {
   const router = useRouter();
-  const [step, setStep] = useState(1); // 1 = details, 2 = avatar
+  const [step, setStep] = useState(1); // 1 = details, 2 = RSVP form, 3 = avatar
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -50,13 +54,23 @@ export default function CreateEventPage() {
     venue: '', address: '', capacity: '',
     coverImage: '', frameImage: '',
     frameZone: { x: 10, y: 10, w: 30, h: 30, shape: 'rect' },
+    formFields: defaultFormFields(),
   });
 
   const set = k => e => setForm(f => ({ ...f, [k]: e.target ? e.target.value : e }));
   const handleZoneChange = useCallback(zone => setForm(f => ({ ...f, frameZone: zone })), []);
+  const handleFormFields = useCallback(formFields => setForm(f => ({ ...f, formFields })), []);
+
+  // Every question needs a label before the event can be saved.
+  const formFieldsValid = form.formFields.every(f => f.label.trim());
 
   async function handleSubmit() {
     if (!form.title || !form.date) { setError('Title and date are required.'); return; }
+    if (!formFieldsValid) {
+      setStep(2);
+      setError('Every question on your registration form needs a label.');
+      return;
+    }
     setSaving(true); setError('');
 
     const res = await fetch('/api/events', {
@@ -84,10 +98,10 @@ export default function CreateEventPage() {
       </div>
 
       {/* Step indicator */}
-      <div className="flex gap-3 mb-8">
-        {['Event Details', 'Avatar Cards'].map((label, i) => (
+      <div className="flex gap-2 sm:gap-3 mb-8">
+        {STEPS.map((label, i) => (
           <button key={i} type="button" onClick={() => setStep(i + 1)}
-            className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-all ${
+            className={`flex-1 py-2 px-1 rounded-xl text-xs sm:text-sm font-bold border transition-all ${
               step === i + 1
                 ? 'bg-[#2a3b19] border-[#2a3b19] text-white'
                 : 'bg-[#f2f1eb] border-[#c0bfb9] text-[#546048]'
@@ -142,14 +156,45 @@ export default function CreateEventPage() {
             onClick={() => { if (!form.title || !form.date) { setError('Please fill in title and date first.'); return; } setError(''); setStep(2); }}
             className="w-full py-3 rounded-xl font-bold text-white bg-gradient-to-r from-[#2a3b19] to-[#1e2d12] hover:opacity-90 transition-opacity"
           >
-            Next: Avatar Cards →
+            Next: Registration Form →
           </button>
           {error && <p className="text-red-400 text-sm">{error}</p>}
         </div>
       )}
 
-      {/* ── Step 2: Avatar Cards ── */}
+      {/* ── Step 2: Registration Form ── */}
       {step === 2 && (
+        <div className="bg-[#f2f1eb] border border-[#c0bfb9] rounded-2xl p-6 space-y-5">
+          <FormBuilder value={form.formFields} onChange={handleFormFields} />
+
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">{error}</div>
+          )}
+
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => { setError(''); setStep(1); }}
+              className="flex-1 py-3 rounded-xl font-bold border border-[#c0bfb9] text-[#546048] hover:text-[#2a3b19] hover:border-[#2a3b19] transition-all"
+            >
+              ← Back
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!formFieldsValid) { setError('Every question needs a label.'); return; }
+                setError(''); setStep(3);
+              }}
+              className="flex-1 py-3 rounded-xl font-bold text-white bg-gradient-to-r from-[#2a3b19] to-[#1e2d12] hover:opacity-90 transition-opacity"
+            >
+              Next: Avatar Cards →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Step 3: Avatar Cards ── */}
+      {step === 3 && (
         <div className="space-y-4">
 
           {/* Yes / No prompt */}
@@ -180,8 +225,8 @@ export default function CreateEventPage() {
                   No, skip
                 </button>
               </div>
-              <button type="button" onClick={() => setStep(1)} className="text-xs text-[#546048] hover:text-[#2a3b19] underline">
-                ← Back to details
+              <button type="button" onClick={() => setStep(2)} className="text-xs text-[#546048] hover:text-[#2a3b19] underline">
+                ← Back to registration form
               </button>
             </div>
           )}

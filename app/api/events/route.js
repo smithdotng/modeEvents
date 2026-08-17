@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { connectDB } from '@/lib/mongodb';
 import Event from '@/models/Event';
+import { normalizeFormFields } from '@/lib/formFields';
 
 // GET /api/events — list current user's events
 export async function GET() {
@@ -24,7 +25,10 @@ export async function POST(req) {
 
   try {
     const body = await req.json();
-    const { title, description, date, endDate, venue, address, capacity, coverImage, frameImage, frameZone } = body;
+    const {
+      title, description, date, endDate, venue, address, capacity,
+      coverImage, frameImage, frameZone, avatarsEnabled, formFields,
+    } = body;
 
     if (!title || !date) {
       return NextResponse.json({ error: 'Title and date are required.' }, { status: 400 });
@@ -42,6 +46,8 @@ export async function POST(req) {
       address: address || '',
       capacity: capacity || 0,
       coverImage: coverImage || '',
+      formFields: normalizeFormFields(formFields),
+      avatarsEnabled: !!avatarsEnabled,
       frameImage: frameImage || '',
       frameZone: frameZone || { x: 10, y: 10, w: 30, h: 30, shape: 'rect' },
     });

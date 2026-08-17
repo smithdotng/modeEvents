@@ -1,11 +1,15 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import BroadcastModal from '@/components/BroadcastModal';
 import MessageModal from '@/components/MessageModal';
 import EditEventPanel from '@/components/EditEventPanel';
+import { getFormFields, formatAnswer, CORE_KEYS } from '@/lib/formFields';
+
+// CSV cells: escape embedded quotes so answers with punctuation survive Excel.
+const csvCell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
 
 // Dynamically import scanner (uses camera/jsQR — no SSR needed)
 const QRScanner = dynamic(() => import('@/components/QRScanner'), { ssr: false });
@@ -30,6 +34,7 @@ export default function ManageEventPage() {
   const [showBroadcast, setShowBroadcast] = useState(false);
   const [messageTarget, setMessageTarget] = useState(null);
   const [editing, setEditing] = useState(false);
+  const [expanded, setExpanded] = useState({}); // attendeeId → show custom answers
 
   useEffect(() => {
     Promise.all([
@@ -41,6 +46,25 @@ export default function ManageEventPage() {
       setLoading(false);
     });
   }, [id]);
+
+  // Custom questions to show as extra columns: the ones currently on the form,
+  // plus any that guests answered before the form was edited.
+  const customFields = useMemo(() => {
+    const current = event
+      ? getFormFields(event).filter(f => !CORE_KEYS.includes(f.key))
+      : [];
+    const seen = new Set(current.map(f => f.key));
+    const retired = [];
+    for (const a of attendees) {
+      for (const r of a.responses || []) {
+        if (!seen.has(r.fieldKey)) {
+          seen.add(r.fieldKey);
+          retired.push({ key: r.fieldKey, label: `${r.label} (removed)`, type: r.type });
+        }
+      }
+    }
+    return [...current, ...retired];
+  }, [event, attendees]);
 
   async function toggleCheckin(attendeeId, current) {
     const res = await fetch(`/api/events/${id}/attendees`, {
@@ -60,13 +84,17 @@ export default function ManageEventPage() {
   }
 
   function downloadCSV() {
-    const rows = [['Name', 'Email', 'Phone', 'Ticket Code', 'Checked In', 'Registered']];
+    const rows = [[
+      'Name', 'Email', 'Phone', 'Ticket Code', 'Checked In', 'Registered',
+      ...customFields.map(f => f.label),
+    ]];
     attendees.forEach(a => rows.push([
       a.name, a.email, a.phone || '', a.ticketCode,
       a.checkedIn ? 'Yes' : 'No',
       new Date(a.createdAt).toLocaleString(),
+      ...customFields.map(f => formatAnswer((a.responses || []).find(r => r.fieldKey === f.key))),
     ]));
-    const blob = new Blob([rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n')], { type: 'text/csv' });
+    const blob = new Blob([rows.map(r => r.map(csvCell).join(',')).join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url; link.download = `attendees-${event?.uniqueCode}.csv`; link.click();
@@ -74,10 +102,12 @@ export default function ManageEventPage() {
   }
 
   const publicURL = typeof window !== 'undefined' ? `${window.location.origin}/e/${event?.uniqueCode}` : '';
-  const filtered = attendees.filter(a =>
-    a.name.toLowerCase().includes(search.toLowerCase()) ||
-    a.email.toLowerCase().includes(search.toLowerCase()) ||
-    a.ticketCode.toLowerCase().includes(search.toLowerCase())
+  const q = search.trim().toLowerCase();
+  const filtered = !q ? attendees : attendees.filter(a =>
+    a.name.toLowerCase().includes(q) ||
+    a.email.toLowerCase().includes(q) ||
+    a.ticketCode.toLowerCase().includes(q) ||
+    (a.responses || []).some(r => formatAnswer(r).toLowerCase().includes(q))
   );
   const checkedIn = attendees.filter(a => a.checkedIn).length;
 
@@ -192,6 +222,24 @@ export default function ManageEventPage() {
 
               {event.address && <p className="text-sm text-[#546048]">📍 {event.address}</p>}
 
+              {/* Registration form summary */}
+              <div>
+                <p className="text-xs font-bold text-[#546048] uppercase tracking-widest mb-2">Registration form</p>
+                <ol className="space-y-1">
+                  {getFormFields(event).map((f, i) => (
+                    <li key={f.key} className="text-sm text-[#546048]">
+                      <span className="text-[#c0bfb9] mr-2">{i + 1}.</span>
+                      <span className="text-[#1c2410] font-semibold">{f.label}</span>
+                      {f.required && <span className="text-red-500"> *</span>}
+                      <span className="text-xs"> · {f.type}</span>
+                    </li>
+                  ))}
+                </ol>
+                <p className="text-xs text-[#546048] mt-2 italic">
+                  Click Edit details to change what guests are asked.
+                </p>
+              </div>
+
               {event.coverImage && (
                 <div>
                   <p className="text-xs font-bold text-[#546048] uppercase tracking-widest mb-2">Cover image</p>
@@ -224,7 +272,7 @@ export default function ManageEventPage() {
         <div className="space-y-4">
           <div className="flex gap-3 flex-wrap">
             <input
-              placeholder="Search name, email or ticket…"
+              placeholder="Search name, email, ticket or answers…"
               value={search}
               onChange={e => setSearch(e.target.value)}
               className="flex-1 min-w-48"
@@ -261,8 +309,20 @@ export default function ManageEventPage() {
                   </thead>
                   <tbody>
                     {filtered.map(a => (
-                      <tr key={a._id} className="border-b border-[#c0bfb9] last:border-0 hover:bg-[#e8e7e1] transition-colors">
-                        <td className="px-4 py-3 font-semibold text-[#1c2410] pl-5 whitespace-nowrap">{a.name}</td>
+                      <Fragment key={a._id}>
+                      <tr className="border-b border-[#c0bfb9] last:border-0 hover:bg-[#e8e7e1] transition-colors">
+                        <td className="px-4 py-3 font-semibold text-[#1c2410] pl-5 whitespace-nowrap">
+                          {a.responses?.length > 0 && (
+                            <button
+                              onClick={() => setExpanded(m => ({ ...m, [a._id]: !m[a._id] }))}
+                              title={expanded[a._id] ? 'Hide answers' : `Show ${a.responses.length} answer${a.responses.length > 1 ? 's' : ''}`}
+                              className="mr-2 text-xs text-[#546048] hover:text-[#2a3b19]"
+                            >
+                              {expanded[a._id] ? '▾' : '▸'}
+                            </button>
+                          )}
+                          {a.name}
+                        </td>
                         <td className="px-4 py-3 text-[#546048] max-w-[200px] truncate">{a.email}</td>
                         <td className="px-4 py-3 text-[#546048] whitespace-nowrap">{a.phone || '—'}</td>
                         <td className="px-4 py-3 font-mono text-xs text-[#2a3b19] whitespace-nowrap">{a.ticketCode}</td>
@@ -291,6 +351,31 @@ export default function ManageEventPage() {
                           </button>
                         </td>
                       </tr>
+                      {expanded[a._id] && a.responses?.length > 0 && (
+                        <tr className="border-b border-[#c0bfb9] bg-[#e8e7e1]/60">
+                          <td colSpan={7} className="px-5 py-4">
+                            <dl className="grid sm:grid-cols-2 gap-x-6 gap-y-2">
+                              {a.responses.map(r => (
+                                <div key={r.fieldKey}>
+                                  <dt className="text-xs font-bold text-[#546048] uppercase tracking-wide">{r.label}</dt>
+                                  <dd className="text-sm text-[#1c2410] break-words">
+                                    {r.type === 'file' && r.value?.dataURL ? (
+                                      <a
+                                        href={r.value.dataURL}
+                                        download={r.value.name || 'attachment'}
+                                        className="text-[#2a3b19] font-semibold hover:underline"
+                                      >
+                                        ⬇ {r.value.name || 'Download file'}
+                                      </a>
+                                    ) : (formatAnswer(r) || '—')}
+                                  </dd>
+                                </div>
+                              ))}
+                            </dl>
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>
@@ -313,6 +398,38 @@ export default function ManageEventPage() {
                       </span>
                     </div>
                     <p className="font-mono text-xs text-[#2a3b19]">{a.ticketCode}</p>
+
+                    {a.responses?.length > 0 && (
+                      <div className="pt-1">
+                        <button
+                          onClick={() => setExpanded(m => ({ ...m, [a._id]: !m[a._id] }))}
+                          className="text-xs font-bold text-[#2a3b19] hover:underline"
+                        >
+                          {expanded[a._id] ? '▾ Hide answers' : `▸ ${a.responses.length} answer${a.responses.length > 1 ? 's' : ''}`}
+                        </button>
+                        {expanded[a._id] && (
+                          <dl className="mt-2 space-y-2 bg-[#e8e7e1] rounded-xl p-3">
+                            {a.responses.map(r => (
+                              <div key={r.fieldKey}>
+                                <dt className="text-[0.7rem] font-bold text-[#546048] uppercase tracking-wide">{r.label}</dt>
+                                <dd className="text-sm text-[#1c2410] break-words">
+                                  {r.type === 'file' && r.value?.dataURL ? (
+                                    <a
+                                      href={r.value.dataURL}
+                                      download={r.value.name || 'attachment'}
+                                      className="text-[#2a3b19] font-semibold hover:underline"
+                                    >
+                                      ⬇ {r.value.name || 'Download file'}
+                                    </a>
+                                  ) : (formatAnswer(r) || '—')}
+                                </dd>
+                              </div>
+                            ))}
+                          </dl>
+                        )}
+                      </div>
+                    )}
+
                     <div className="flex gap-2 pt-1">
                       <button
                         onClick={() => toggleCheckin(a._id, a.checkedIn)}

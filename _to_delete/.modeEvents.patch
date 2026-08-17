@@ -1,0 +1,1520 @@
+diff -uNr -x node_modules -x package-lock.json -x '.*' pristine/app/api/events/[id]/route.js work/app/api/events/[id]/route.js
+--- a/app/api/events/[id]/route.js	2026-08-17 06:40:17.466914622 +0000
++++ b/app/api/events/[id]/route.js	2026-08-17 06:33:50.660957856 +0000
+@@ -4,6 +4,7 @@
+ import { connectDB } from '@/lib/mongodb';
+ import Event from '@/models/Event';
+ import Attendee from '@/models/Attendee';
++import { normalizeFormFields } from '@/lib/formFields';
+ 
+ // GET /api/events/[id]
+ export async function GET(req, { params }) {
+@@ -30,6 +31,11 @@
+   const allowed = ['title','description','date','endDate','venue','address','capacity','coverImage','avatarsEnabled','frameImage','frameZone','status'];
+   allowed.forEach(k => { if (body[k] !== undefined) event[k] = body[k]; });
+ 
++  // The RSVP form is sanitised rather than trusted verbatim.
++  if (body.formFields !== undefined) {
++    event.formFields = normalizeFormFields(body.formFields);
++  }
++
+   await event.save();
+   return NextResponse.json({ event });
+ }
+diff -uNr -x node_modules -x package-lock.json -x '.*' pristine/app/api/events/route.js work/app/api/events/route.js
+--- a/app/api/events/route.js	2026-08-17 06:40:17.466861306 +0000
++++ b/app/api/events/route.js	2026-08-17 06:33:44.408958087 +0000
+@@ -3,6 +3,7 @@
+ import { authOptions } from '@/lib/auth';
+ import { connectDB } from '@/lib/mongodb';
+ import Event from '@/models/Event';
++import { normalizeFormFields } from '@/lib/formFields';
+ 
+ // GET /api/events — list current user's events
+ export async function GET() {
+@@ -24,7 +25,10 @@
+ 
+   try {
+     const body = await req.json();
+-    const { title, description, date, endDate, venue, address, capacity, coverImage, frameImage, frameZone } = body;
++    const {
++      title, description, date, endDate, venue, address, capacity,
++      coverImage, frameImage, frameZone, avatarsEnabled, formFields,
++    } = body;
+ 
+     if (!title || !date) {
+       return NextResponse.json({ error: 'Title and date are required.' }, { status: 400 });
+@@ -42,6 +46,8 @@
+       address: address || '',
+       capacity: capacity || 0,
+       coverImage: coverImage || '',
++      formFields: normalizeFormFields(formFields),
++      avatarsEnabled: !!avatarsEnabled,
+       frameImage: frameImage || '',
+       frameZone: frameZone || { x: 10, y: 10, w: 30, h: 30, shape: 'rect' },
+     });
+diff -uNr -x node_modules -x package-lock.json -x '.*' pristine/app/api/public/[code]/rsvp/route.js work/app/api/public/[code]/rsvp/route.js
+--- a/app/api/public/[code]/rsvp/route.js	2026-08-17 06:40:17.466704285 +0000
++++ b/app/api/public/[code]/rsvp/route.js	2026-08-17 06:34:19.816956776 +0000
+@@ -2,6 +2,7 @@
+ import { connectDB } from '@/lib/mongodb';
+ import Event from '@/models/Event';
+ import Attendee from '@/models/Attendee';
++import { getFormFields, collectSubmission } from '@/lib/formFields';
+ 
+ // POST /api/public/[code]/rsvp — submit RSVP (no auth required)
+ export async function POST(req, { params }) {
+@@ -22,14 +23,30 @@
+     }
+   }
+ 
+-  const { name, email, phone, photo, compositeImage } = await req.json();
++  const body = await req.json();
++  const { photo, compositeImage } = body;
+ 
+-  if (!name || !email) {
++  // Answers arrive keyed by form-field key. Older clients posted name/email/phone
++  // at the top level, so those are accepted as a fallback.
++  const answers = {
++    name: body.name,
++    email: body.email,
++    phone: body.phone,
++    ...(body.answers && typeof body.answers === 'object' ? body.answers : {}),
++  };
++
++  const fields = getFormFields(event);
++  const { errors, core, responses } = collectSubmission(fields, answers);
++
++  if (errors.length) {
++    return NextResponse.json({ error: errors[0], errors }, { status: 400 });
++  }
++  if (!core.name || !core.email) {
+     return NextResponse.json({ error: 'Name and email are required.' }, { status: 400 });
+   }
+ 
+   // Check if already registered
+-  const existing = await Attendee.findOne({ eventId: event._id, email: email.toLowerCase() });
++  const existing = await Attendee.findOne({ eventId: event._id, email: core.email.toLowerCase() });
+   if (existing) {
+     return NextResponse.json({
+       error: 'You have already registered for this event.',
+@@ -40,9 +57,10 @@
+ 
+   const attendee = await Attendee.create({
+     eventId: event._id,
+-    name: name.trim(),
+-    email: email.toLowerCase(),
+-    phone: phone || '',
++    name: core.name.trim(),
++    email: core.email.toLowerCase(),
++    phone: core.phone || '',
++    responses,
+     photo: photo || '',
+     compositeImage: compositeImage || '',
+   });
+diff -uNr -x node_modules -x package-lock.json -x '.*' pristine/app/events/[id]/page.jsx work/app/events/[id]/page.jsx
+--- a/app/events/[id]/page.jsx	2026-08-17 06:40:17.466139673 +0000
++++ b/app/events/[id]/page.jsx	2026-08-17 06:36:24.036952176 +0000
+@@ -1,11 +1,15 @@
+ 'use client';
+-import { useEffect, useState } from 'react';
++import { Fragment, useEffect, useMemo, useState } from 'react';
+ import { useParams } from 'next/navigation';
+ import Link from 'next/link';
+ import dynamic from 'next/dynamic';
+ import BroadcastModal from '@/components/BroadcastModal';
+ import MessageModal from '@/components/MessageModal';
+ import EditEventPanel from '@/components/EditEventPanel';
++import { getFormFields, formatAnswer, CORE_KEYS } from '@/lib/formFields';
++
++// CSV cells: escape embedded quotes so answers with punctuation survive Excel.
++const csvCell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+ 
+ // Dynamically import scanner (uses camera/jsQR — no SSR needed)
+ const QRScanner = dynamic(() => import('@/components/QRScanner'), { ssr: false });
+@@ -30,6 +34,7 @@
+   const [showBroadcast, setShowBroadcast] = useState(false);
+   const [messageTarget, setMessageTarget] = useState(null);
+   const [editing, setEditing] = useState(false);
++  const [expanded, setExpanded] = useState({}); // attendeeId → show custom answers
+ 
+   useEffect(() => {
+     Promise.all([
+@@ -42,6 +47,25 @@
+     });
+   }, [id]);
+ 
++  // Custom questions to show as extra columns: the ones currently on the form,
++  // plus any that guests answered before the form was edited.
++  const customFields = useMemo(() => {
++    const current = event
++      ? getFormFields(event).filter(f => !CORE_KEYS.includes(f.key))
++      : [];
++    const seen = new Set(current.map(f => f.key));
++    const retired = [];
++    for (const a of attendees) {
++      for (const r of a.responses || []) {
++        if (!seen.has(r.fieldKey)) {
++          seen.add(r.fieldKey);
++          retired.push({ key: r.fieldKey, label: `${r.label} (removed)`, type: r.type });
++        }
++      }
++    }
++    return [...current, ...retired];
++  }, [event, attendees]);
++
+   async function toggleCheckin(attendeeId, current) {
+     const res = await fetch(`/api/events/${id}/attendees`, {
+       method: 'PATCH',
+@@ -60,13 +84,17 @@
+   }
+ 
+   function downloadCSV() {
+-    const rows = [['Name', 'Email', 'Phone', 'Ticket Code', 'Checked In', 'Registered']];
++    const rows = [[
++      'Name', 'Email', 'Phone', 'Ticket Code', 'Checked In', 'Registered',
++      ...customFields.map(f => f.label),
++    ]];
+     attendees.forEach(a => rows.push([
+       a.name, a.email, a.phone || '', a.ticketCode,
+       a.checkedIn ? 'Yes' : 'No',
+       new Date(a.createdAt).toLocaleString(),
++      ...customFields.map(f => formatAnswer((a.responses || []).find(r => r.fieldKey === f.key))),
+     ]));
+-    const blob = new Blob([rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n')], { type: 'text/csv' });
++    const blob = new Blob([rows.map(r => r.map(csvCell).join(',')).join('\n')], { type: 'text/csv' });
+     const url = URL.createObjectURL(blob);
+     const link = document.createElement('a');
+     link.href = url; link.download = `attendees-${event?.uniqueCode}.csv`; link.click();
+@@ -74,10 +102,12 @@
+   }
+ 
+   const publicURL = typeof window !== 'undefined' ? `${window.location.origin}/e/${event?.uniqueCode}` : '';
+-  const filtered = attendees.filter(a =>
+-    a.name.toLowerCase().includes(search.toLowerCase()) ||
+-    a.email.toLowerCase().includes(search.toLowerCase()) ||
+-    a.ticketCode.toLowerCase().includes(search.toLowerCase())
++  const q = search.trim().toLowerCase();
++  const filtered = !q ? attendees : attendees.filter(a =>
++    a.name.toLowerCase().includes(q) ||
++    a.email.toLowerCase().includes(q) ||
++    a.ticketCode.toLowerCase().includes(q) ||
++    (a.responses || []).some(r => formatAnswer(r).toLowerCase().includes(q))
+   );
+   const checkedIn = attendees.filter(a => a.checkedIn).length;
+ 
+@@ -192,6 +222,24 @@
+ 
+               {event.address && <p className="text-sm text-[#546048]">📍 {event.address}</p>}
+ 
++              {/* Registration form summary */}
++              <div>
++                <p className="text-xs font-bold text-[#546048] uppercase tracking-widest mb-2">Registration form</p>
++                <ol className="space-y-1">
++                  {getFormFields(event).map((f, i) => (
++                    <li key={f.key} className="text-sm text-[#546048]">
++                      <span className="text-[#c0bfb9] mr-2">{i + 1}.</span>
++                      <span className="text-[#1c2410] font-semibold">{f.label}</span>
++                      {f.required && <span className="text-red-500"> *</span>}
++                      <span className="text-xs"> · {f.type}</span>
++                    </li>
++                  ))}
++                </ol>
++                <p className="text-xs text-[#546048] mt-2 italic">
++                  Click Edit details to change what guests are asked.
++                </p>
++              </div>
++
+               {event.coverImage && (
+                 <div>
+                   <p className="text-xs font-bold text-[#546048] uppercase tracking-widest mb-2">Cover image</p>
+@@ -224,7 +272,7 @@
+         <div className="space-y-4">
+           <div className="flex gap-3 flex-wrap">
+             <input
+-              placeholder="Search name, email or ticket…"
++              placeholder="Search name, email, ticket or answers…"
+               value={search}
+               onChange={e => setSearch(e.target.value)}
+               className="flex-1 min-w-48"
+@@ -261,8 +309,20 @@
+                   </thead>
+                   <tbody>
+                     {filtered.map(a => (
+-                      <tr key={a._id} className="border-b border-[#c0bfb9] last:border-0 hover:bg-[#e8e7e1] transition-colors">
+-                        <td className="px-4 py-3 font-semibold text-[#1c2410] pl-5 whitespace-nowrap">{a.name}</td>
++                      <Fragment key={a._id}>
++                      <tr className="border-b border-[#c0bfb9] last:border-0 hover:bg-[#e8e7e1] transition-colors">
++                        <td className="px-4 py-3 font-semibold text-[#1c2410] pl-5 whitespace-nowrap">
++                          {a.responses?.length > 0 && (
++                            <button
++                              onClick={() => setExpanded(m => ({ ...m, [a._id]: !m[a._id] }))}
++                              title={expanded[a._id] ? 'Hide answers' : `Show ${a.responses.length} answer${a.responses.length > 1 ? 's' : ''}`}
++                              className="mr-2 text-xs text-[#546048] hover:text-[#2a3b19]"
++                            >
++                              {expanded[a._id] ? '▾' : '▸'}
++                            </button>
++                          )}
++                          {a.name}
++                        </td>
+                         <td className="px-4 py-3 text-[#546048] max-w-[200px] truncate">{a.email}</td>
+                         <td className="px-4 py-3 text-[#546048] whitespace-nowrap">{a.phone || '—'}</td>
+                         <td className="px-4 py-3 font-mono text-xs text-[#2a3b19] whitespace-nowrap">{a.ticketCode}</td>
+@@ -291,6 +351,31 @@
+                           </button>
+                         </td>
+                       </tr>
++                      {expanded[a._id] && a.responses?.length > 0 && (
++                        <tr className="border-b border-[#c0bfb9] bg-[#e8e7e1]/60">
++                          <td colSpan={7} className="px-5 py-4">
++                            <dl className="grid sm:grid-cols-2 gap-x-6 gap-y-2">
++                              {a.responses.map(r => (
++                                <div key={r.fieldKey}>
++                                  <dt className="text-xs font-bold text-[#546048] uppercase tracking-wide">{r.label}</dt>
++                                  <dd className="text-sm text-[#1c2410] break-words">
++                                    {r.type === 'file' && r.value?.dataURL ? (
++                                      <a
++                                        href={r.value.dataURL}
++                                        download={r.value.name || 'attachment'}
++                                        className="text-[#2a3b19] font-semibold hover:underline"
++                                      >
++                                        ⬇ {r.value.name || 'Download file'}
++                                      </a>
++                                    ) : (formatAnswer(r) || '—')}
++                                  </dd>
++                                </div>
++                              ))}
++                            </dl>
++                          </td>
++                        </tr>
++                      )}
++                      </Fragment>
+                     ))}
+                   </tbody>
+                 </table>
+@@ -313,6 +398,38 @@
+                       </span>
+                     </div>
+                     <p className="font-mono text-xs text-[#2a3b19]">{a.ticketCode}</p>
++
++                    {a.responses?.length > 0 && (
++                      <div className="pt-1">
++                        <button
++                          onClick={() => setExpanded(m => ({ ...m, [a._id]: !m[a._id] }))}
++                          className="text-xs font-bold text-[#2a3b19] hover:underline"
++                        >
++                          {expanded[a._id] ? '▾ Hide answers' : `▸ ${a.responses.length} answer${a.responses.length > 1 ? 's' : ''}`}
++                        </button>
++                        {expanded[a._id] && (
++                          <dl className="mt-2 space-y-2 bg-[#e8e7e1] rounded-xl p-3">
++                            {a.responses.map(r => (
++                              <div key={r.fieldKey}>
++                                <dt className="text-[0.7rem] font-bold text-[#546048] uppercase tracking-wide">{r.label}</dt>
++                                <dd className="text-sm text-[#1c2410] break-words">
++                                  {r.type === 'file' && r.value?.dataURL ? (
++                                    <a
++                                      href={r.value.dataURL}
++                                      download={r.value.name || 'attachment'}
++                                      className="text-[#2a3b19] font-semibold hover:underline"
++                                    >
++                                      ⬇ {r.value.name || 'Download file'}
++                                    </a>
++                                  ) : (formatAnswer(r) || '—')}
++                                </dd>
++                              </div>
++                            ))}
++                          </dl>
++                        )}
++                      </div>
++                    )}
++
+                     <div className="flex gap-2 pt-1">
+                       <button
+                         onClick={() => toggleCheckin(a._id, a.checkedIn)}
+diff -uNr -x node_modules -x package-lock.json -x '.*' pristine/app/events/create/page.jsx work/app/events/create/page.jsx
+--- a/app/events/create/page.jsx	2026-08-17 06:40:17.466086487 +0000
++++ b/app/events/create/page.jsx	2026-08-17 06:33:27.364958718 +0000
+@@ -2,6 +2,10 @@
+ import { useState, useCallback } from 'react';
+ import { useRouter } from 'next/navigation';
+ import FrameZoneSelector from '@/components/FrameZoneSelector';
++import FormBuilder from '@/components/FormBuilder';
++import { defaultFormFields } from '@/lib/formFields';
++
++const STEPS = ['Event Details', 'Registration Form', 'Avatar Cards'];
+ 
+ function ImageUpload({ label, value, onChange, hint, maxMB = 1.5 }) {
+   function handleFile(e) {
+@@ -38,7 +42,7 @@
+ 
+ export default function CreateEventPage() {
+   const router = useRouter();
+-  const [step, setStep] = useState(1); // 1 = details, 2 = avatar
++  const [step, setStep] = useState(1); // 1 = details, 2 = RSVP form, 3 = avatar
+   const [saving, setSaving] = useState(false);
+   const [error, setError] = useState('');
+ 
+@@ -50,13 +54,23 @@
+     venue: '', address: '', capacity: '',
+     coverImage: '', frameImage: '',
+     frameZone: { x: 10, y: 10, w: 30, h: 30, shape: 'rect' },
++    formFields: defaultFormFields(),
+   });
+ 
+   const set = k => e => setForm(f => ({ ...f, [k]: e.target ? e.target.value : e }));
+   const handleZoneChange = useCallback(zone => setForm(f => ({ ...f, frameZone: zone })), []);
++  const handleFormFields = useCallback(formFields => setForm(f => ({ ...f, formFields })), []);
++
++  // Every question needs a label before the event can be saved.
++  const formFieldsValid = form.formFields.every(f => f.label.trim());
+ 
+   async function handleSubmit() {
+     if (!form.title || !form.date) { setError('Title and date are required.'); return; }
++    if (!formFieldsValid) {
++      setStep(2);
++      setError('Every question on your registration form needs a label.');
++      return;
++    }
+     setSaving(true); setError('');
+ 
+     const res = await fetch('/api/events', {
+@@ -84,10 +98,10 @@
+       </div>
+ 
+       {/* Step indicator */}
+-      <div className="flex gap-3 mb-8">
+-        {['Event Details', 'Avatar Cards'].map((label, i) => (
++      <div className="flex gap-2 sm:gap-3 mb-8">
++        {STEPS.map((label, i) => (
+           <button key={i} type="button" onClick={() => setStep(i + 1)}
+-            className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-all ${
++            className={`flex-1 py-2 px-1 rounded-xl text-xs sm:text-sm font-bold border transition-all ${
+               step === i + 1
+                 ? 'bg-[#2a3b19] border-[#2a3b19] text-white'
+                 : 'bg-[#f2f1eb] border-[#c0bfb9] text-[#546048]'
+@@ -142,14 +156,45 @@
+             onClick={() => { if (!form.title || !form.date) { setError('Please fill in title and date first.'); return; } setError(''); setStep(2); }}
+             className="w-full py-3 rounded-xl font-bold text-white bg-gradient-to-r from-[#2a3b19] to-[#1e2d12] hover:opacity-90 transition-opacity"
+           >
+-            Next: Avatar Cards →
++            Next: Registration Form →
+           </button>
+           {error && <p className="text-red-400 text-sm">{error}</p>}
+         </div>
+       )}
+ 
+-      {/* ── Step 2: Avatar Cards ── */}
++      {/* ── Step 2: Registration Form ── */}
+       {step === 2 && (
++        <div className="bg-[#f2f1eb] border border-[#c0bfb9] rounded-2xl p-6 space-y-5">
++          <FormBuilder value={form.formFields} onChange={handleFormFields} />
++
++          {error && (
++            <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">{error}</div>
++          )}
++
++          <div className="flex gap-3">
++            <button
++              type="button"
++              onClick={() => { setError(''); setStep(1); }}
++              className="flex-1 py-3 rounded-xl font-bold border border-[#c0bfb9] text-[#546048] hover:text-[#2a3b19] hover:border-[#2a3b19] transition-all"
++            >
++              ← Back
++            </button>
++            <button
++              type="button"
++              onClick={() => {
++                if (!formFieldsValid) { setError('Every question needs a label.'); return; }
++                setError(''); setStep(3);
++              }}
++              className="flex-1 py-3 rounded-xl font-bold text-white bg-gradient-to-r from-[#2a3b19] to-[#1e2d12] hover:opacity-90 transition-opacity"
++            >
++              Next: Avatar Cards →
++            </button>
++          </div>
++        </div>
++      )}
++
++      {/* ── Step 3: Avatar Cards ── */}
++      {step === 3 && (
+         <div className="space-y-4">
+ 
+           {/* Yes / No prompt */}
+@@ -180,8 +225,8 @@
+                   No, skip
+                 </button>
+               </div>
+-              <button type="button" onClick={() => setStep(1)} className="text-xs text-[#546048] hover:text-[#2a3b19] underline">
+-                ← Back to details
++              <button type="button" onClick={() => setStep(2)} className="text-xs text-[#546048] hover:text-[#2a3b19] underline">
++                ← Back to registration form
+               </button>
+             </div>
+           )}
+diff -uNr -x node_modules -x package-lock.json -x '.*' pristine/components/EditEventPanel.jsx work/components/EditEventPanel.jsx
+--- a/components/EditEventPanel.jsx	2026-08-17 06:40:17.465956406 +0000
++++ b/components/EditEventPanel.jsx	2026-08-17 06:35:08.396954977 +0000
+@@ -1,9 +1,12 @@
+ 'use client';
+ import { useState } from 'react';
+ import FrameZoneSelector from '@/components/FrameZoneSelector';
++import FormBuilder from '@/components/FormBuilder';
++import { getFormFields } from '@/lib/formFields';
+ 
+ export default function EditEventPanel({ event, onSave, onCancel }) {
+   const [description, setDescription]     = useState(event.description || '');
++  const [formFields, setFormFields]       = useState(() => getFormFields(event));
+   const [avatarsEnabled, setAvatarsEnabled] = useState(!!event.avatarsEnabled);
+   const [frameImage, setFrameImage]       = useState(event.frameImage || '');
+   const [frameZone, setFrameZone]         = useState(event.frameZone  || null);
+@@ -23,12 +26,16 @@
+   }
+ 
+   async function handleSave() {
++    if (formFields.some(f => !f.label.trim())) {
++      setError('Every question on the registration form needs a label.');
++      return;
++    }
+     setSaving(true);
+     setError('');
+     const res = await fetch(`/api/events/${event._id}`, {
+       method: 'PUT',
+       headers: { 'Content-Type': 'application/json' },
+-      body: JSON.stringify({ description, avatarsEnabled, frameImage, frameZone }),
++      body: JSON.stringify({ description, formFields, avatarsEnabled, frameImage, frameZone }),
+     });
+     const data = await res.json();
+     setSaving(false);
+@@ -53,6 +60,14 @@
+         />
+       </div>
+ 
++      {/* Registration form builder */}
++      <div className="border-t border-[#c0bfb9] pt-6">
++        <FormBuilder value={formFields} onChange={setFormFields} />
++        <p className="text-xs text-[#546048] mt-3 leading-relaxed">
++          Changing the form only affects future RSVPs — answers already collected stay as they were.
++        </p>
++      </div>
++
+       {/* Avatar toggle */}
+       <div className="bg-[#e8e7e1] border border-[#c0bfb9] rounded-xl p-4 flex items-start gap-4">
+         <button
+diff -uNr -x node_modules -x package-lock.json -x '.*' pristine/components/EventRSVPClient.jsx work/components/EventRSVPClient.jsx
+--- a/components/EventRSVPClient.jsx	2026-08-17 06:40:17.465764233 +0000
++++ b/components/EventRSVPClient.jsx	2026-08-17 06:34:45.676955818 +0000
+@@ -1,7 +1,9 @@
+ 'use client';
+-import { useEffect, useState, useCallback } from 'react';
++import { useEffect, useMemo, useState, useCallback } from 'react';
+ import AvatarCompositor from '@/components/AvatarCompositor';
+ import QRTicket from '@/components/QRTicket';
++import FormFieldInput from '@/components/FormFieldInput';
++import { getFormFields, blankAnswers, isEmptyAnswer } from '@/lib/formFields';
+ 
+ export default function EventRSVPClient({ code }) {
+   const [event, setEvent] = useState(null);
+@@ -9,8 +11,8 @@
+   const [loading, setLoading] = useState(true);
+   const [notFound, setNotFound] = useState(false);
+ 
+-  // Form state
+-  const [form, setForm] = useState({ name: '', email: '', phone: '' });
++  // Answers to the host-designed form, keyed by field key
++  const [answers, setAnswers] = useState({});
+   const [submitting, setSubmitting] = useState(false);
+   const [result, setResult] = useState(null); // { ticketCode, attendeeId }
+   const [error, setError] = useState('');
+@@ -31,15 +33,38 @@
+       });
+   }, [code]);
+ 
+-  const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
++  // The host's form definition (falls back to name/email/phone for older events)
++  const fields = useMemo(() => (event ? getFormFields(event) : []), [event]);
++
++  // Seed one blank answer per field once the event has loaded
++  useEffect(() => {
++    if (fields.length) setAnswers(blankAnswers(fields));
++  }, [fields]);
++
++  const setAnswer = useCallback((key, value) => {
++    setAnswers(a => ({ ...a, [key]: value }));
++  }, []);
+ 
+   async function handleSubmit(e) {
+     e.preventDefault();
++
++    const missing = fields.find(f => f.required && isEmptyAnswer(f, answers[f.key]));
++    if (missing) {
++      setError(`${missing.label} is required.`);
++      return;
++    }
++
+     setSubmitting(true); setError('');
+     const res = await fetch(`/api/public/${code}/rsvp`, {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+-      body: JSON.stringify({ ...form }),
++      body: JSON.stringify({
++        // Core values stay top-level for backwards compatibility
++        name: answers.name || '',
++        email: answers.email || '',
++        phone: answers.phone || '',
++        answers,
++      }),
+     });
+     const data = await res.json();
+     setSubmitting(false);
+@@ -133,7 +158,7 @@
+           </p>
+           <QRTicket
+             ticketCode={result.ticketCode}
+-            guestName={form.name}
++            guestName={answers.name}
+             eventTitle={event.title}
+             eventDate={event.date}
+             eventVenue={event.venue}
+@@ -277,19 +302,16 @@
+       <div className="bg-[#f2f1eb] border border-[#c0bfb9] rounded-2xl p-6">
+         <h2 className="text-xl font-extrabold text-[#1c2410] mb-5">✋ I&apos;ll be there!</h2>
+ 
+-        <form onSubmit={handleSubmit} className="space-y-4">
+-          <div>
+-            <label>Full name *</label>
+-            <input placeholder="Jane Doe" value={form.name} onChange={set('name')} required />
+-          </div>
+-          <div>
+-            <label>Email address *</label>
+-            <input type="email" placeholder="jane@example.com" value={form.email} onChange={set('email')} required />
+-          </div>
+-          <div>
+-            <label>Phone number</label>
+-            <input type="tel" placeholder="+2348012345678" value={form.phone} onChange={set('phone')} />
+-          </div>
++        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
++          {/* Host-designed fields */}
++          {fields.map(field => (
++            <FormFieldInput
++              key={field.key}
++              field={field}
++              value={answers[field.key]}
++              onChange={v => setAnswer(field.key, v)}
++            />
++          ))}
+ 
+           {/* Hint if avatar cards are available */}
+           {canMakeAvatar && (
+diff -uNr -x node_modules -x package-lock.json -x '.*' pristine/components/FormBuilder.jsx work/components/FormBuilder.jsx
+--- a/components/FormBuilder.jsx	1970-01-01 00:00:00.000000000 +0000
++++ b/components/FormBuilder.jsx	2026-08-17 06:32:49.072960136 +0000
+@@ -0,0 +1,315 @@
++'use client';
++import { useState } from 'react';
++import FormFieldInput from '@/components/FormFieldInput';
++import {
++  FIELD_TYPES,
++  OPTION_TYPES,
++  PLACEHOLDER_TYPES,
++  MAX_FIELDS,
++  MAX_OPTIONS,
++  makeField,
++  defaultFormFields,
++  blankAnswers,
++} from '@/lib/formFields';
++
++const typeMeta = t => FIELD_TYPES.find(f => f.value === t) || FIELD_TYPES[0];
++
++/* ── Options editor (module scope so its inputs never remount) ───────────── */
++function OptionsEditor({ options, onChange }) {
++  return (
++    <div>
++      <label>Choices</label>
++      <div className="space-y-2">
++        {options.map((opt, i) => (
++          <div key={i} className="flex gap-2">
++            <input
++              value={opt}
++              placeholder={`Option ${i + 1}`}
++              onChange={e => onChange(options.map((o, j) => (j === i ? e.target.value : o)))}
++            />
++            <button
++              type="button"
++              onClick={() => onChange(options.filter((_, j) => j !== i))}
++              disabled={options.length <= 1}
++              title="Remove choice"
++              className="px-3 rounded-xl border border-[#c0bfb9] text-[#546048] hover:text-red-500 hover:border-red-400 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
++            >
++              ✕
++            </button>
++          </div>
++        ))}
++      </div>
++      <button
++        type="button"
++        onClick={() => onChange([...options, ''])}
++        disabled={options.length >= MAX_OPTIONS}
++        className="mt-2 text-xs font-bold text-[#2a3b19] hover:underline disabled:opacity-40 disabled:no-underline"
++      >
++        + Add choice
++      </button>
++    </div>
++  );
++}
++
++/* ── One field card ──────────────────────────────────────────────────────── */
++function FieldCard({ field, index, total, lockedCount, open, onToggle, onPatch, onMove, onRemove }) {
++  const meta = typeMeta(field.type);
++  const canMoveUp = !field.locked && index > lockedCount;
++  const canMoveDown = !field.locked && index < total - 1;
++
++  return (
++    <div className={`rounded-xl border transition-colors ${open ? 'border-[#2a3b19] bg-[#e8e7e1]' : 'border-[#c0bfb9] bg-[#e8e7e1]/60'}`}>
++      {/* Header */}
++      <div className="flex items-center gap-2 p-3">
++        <span className="text-lg flex-shrink-0" title={meta.label}>{meta.icon}</span>
++
++        <button type="button" onClick={onToggle} className="flex-1 min-w-0 text-left">
++          <span className="block text-sm font-bold text-[#1c2410] truncate">
++            {field.label || <span className="italic text-[#546048]">Untitled question</span>}
++            {field.required && <span className="text-red-500"> *</span>}
++          </span>
++          <span className="block text-xs text-[#546048]">
++            {meta.label}
++            {field.core && ' · built-in'}
++            {field.locked && ' · always asked'}
++          </span>
++        </button>
++
++        <div className="flex items-center gap-1 flex-shrink-0">
++          <button
++            type="button" onClick={() => onMove(-1)} disabled={!canMoveUp} title="Move up"
++            className="w-7 h-7 rounded-lg text-[#546048] hover:bg-[#dddcd7] disabled:opacity-25 disabled:hover:bg-transparent"
++          >↑</button>
++          <button
++            type="button" onClick={() => onMove(1)} disabled={!canMoveDown} title="Move down"
++            className="w-7 h-7 rounded-lg text-[#546048] hover:bg-[#dddcd7] disabled:opacity-25 disabled:hover:bg-transparent"
++          >↓</button>
++          <button
++            type="button" onClick={onToggle} title={open ? 'Collapse' : 'Edit'}
++            className="w-7 h-7 rounded-lg text-[#546048] hover:bg-[#dddcd7]"
++          >{open ? '▲' : '✏️'}</button>
++          <button
++            type="button" onClick={onRemove} disabled={field.locked}
++            title={field.locked ? 'This question is required for ticketing' : 'Remove question'}
++            className="w-7 h-7 rounded-lg text-[#546048] hover:text-red-500 hover:bg-[#dddcd7] disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-[#546048]"
++          >✕</button>
++        </div>
++      </div>
++
++      {/* Body */}
++      {open && (
++        <div className="px-3 pb-4 pt-1 space-y-3 border-t border-[#c0bfb9]">
++          {!field.core && (
++            <div>
++              <label>Input type</label>
++              <select
++                value={field.type}
++                onChange={e => {
++                  const type = e.target.value;
++                  onPatch({
++                    type,
++                    options: OPTION_TYPES.includes(type)
++                      ? (field.options?.length ? field.options : ['Option 1', 'Option 2'])
++                      : [],
++                    placeholder: PLACEHOLDER_TYPES.includes(type) ? field.placeholder : '',
++                  });
++                }}
++              >
++                {FIELD_TYPES.map(t => (
++                  <option key={t.value} value={t.value}>{t.icon}  {t.label} — {t.hint}</option>
++                ))}
++              </select>
++            </div>
++          )}
++
++          <div>
++            <label>Question label</label>
++            <input
++              value={field.label}
++              placeholder="e.g. What's your t-shirt size?"
++              onChange={e => onPatch({ label: e.target.value })}
++            />
++          </div>
++
++          {PLACEHOLDER_TYPES.includes(field.type) && (
++            <div>
++              <label>Placeholder</label>
++              <input
++                value={field.placeholder || ''}
++                placeholder="Hint text shown inside the box"
++                onChange={e => onPatch({ placeholder: e.target.value })}
++              />
++            </div>
++          )}
++
++          <div>
++            <label>Help text (optional)</label>
++            <input
++              value={field.helpText || ''}
++              placeholder="Extra guidance shown under the label"
++              onChange={e => onPatch({ helpText: e.target.value })}
++            />
++          </div>
++
++          {OPTION_TYPES.includes(field.type) && (
++            <OptionsEditor options={field.options || []} onChange={options => onPatch({ options })} />
++          )}
++
++          <label
++            className="flex items-center gap-3 cursor-pointer"
++            style={{ textTransform: 'none', letterSpacing: 'normal', fontSize: '0.9rem', marginBottom: 0 }}
++          >
++            <input
++              type="checkbox"
++              checked={field.required}
++              disabled={field.locked}
++              onChange={e => onPatch({ required: e.target.checked })}
++            />
++            <span className={field.locked ? 'text-[#546048]' : 'text-[#1c2410]'}>
++              Required{field.locked && ' — always required for ticketing'}
++            </span>
++          </label>
++        </div>
++      )}
++    </div>
++  );
++}
++
++/* ── Builder ─────────────────────────────────────────────────────────────── */
++export default function FormBuilder({ value, onChange }) {
++  const fields = Array.isArray(value) && value.length ? value : defaultFormFields();
++  const [openKey, setOpenKey] = useState(null);
++  const [showPreview, setShowPreview] = useState(false);
++  const [previewAnswers, setPreviewAnswers] = useState({});
++
++  const lockedCount = fields.filter(f => f.locked).length;
++
++  function patch(key, changes) {
++    onChange(fields.map(f => (f.key === key ? { ...f, ...changes } : f)));
++  }
++
++  function move(index, dir) {
++    const target = index + dir;
++    if (target < lockedCount || target > fields.length - 1) return;
++    const next = [...fields];
++    [next[index], next[target]] = [next[target], next[index]];
++    onChange(next);
++  }
++
++  function remove(key) {
++    onChange(fields.filter(f => f.key !== key));
++    if (openKey === key) setOpenKey(null);
++  }
++
++  function add(type) {
++    if (fields.length >= MAX_FIELDS) return;
++    const field = makeField(type);
++    onChange([...fields, field]);
++    setOpenKey(field.key);
++  }
++
++  function resetToDefault() {
++    onChange(defaultFormFields());
++    setOpenKey(null);
++  }
++
++  const unlabelled = fields.filter(f => !f.label.trim()).length;
++
++  return (
++    <div className="space-y-4">
++      <div className="flex items-start justify-between gap-3 flex-wrap">
++        <div>
++          <p className="text-sm font-bold text-[#1c2410]">Registration form</p>
++          <p className="text-xs text-[#546048] leading-relaxed max-w-md">
++            Choose what guests are asked when they RSVP. Name and email are always
++            collected — tickets and the one-RSVP-per-email check depend on them.
++          </p>
++        </div>
++        <button
++          type="button"
++          onClick={() => { setShowPreview(v => !v); setPreviewAnswers(blankAnswers(fields)); }}
++          className="px-4 py-2 rounded-xl text-xs font-bold border border-[#c0bfb9] text-[#546048] hover:text-[#2a3b19] hover:border-[#2a3b19] transition-all whitespace-nowrap"
++        >
++          {showPreview ? '✎ Back to editing' : '👁 Preview form'}
++        </button>
++      </div>
++
++      {showPreview ? (
++        <div className="bg-[#f2f1eb] border border-[#c0bfb9] rounded-2xl p-5 space-y-4">
++          <p className="text-xs font-bold text-[#546048] uppercase tracking-widest">
++            What guests will see
++          </p>
++          {fields.map(f => (
++            <FormFieldInput
++              key={f.key}
++              field={f}
++              idPrefix="preview"
++              value={previewAnswers[f.key]}
++              onChange={v => setPreviewAnswers(a => ({ ...a, [f.key]: v }))}
++            />
++          ))}
++          <button
++            type="button"
++            disabled
++            className="w-full py-3.5 rounded-xl font-bold text-white bg-gradient-to-r from-[#2a3b19] to-[#1e2d12] opacity-70 cursor-not-allowed"
++          >
++            🎟 Confirm my RSVP
++          </button>
++        </div>
++      ) : (
++        <>
++          <div className="space-y-2">
++            {fields.map((f, i) => (
++              <FieldCard
++                key={f.key}
++                field={f}
++                index={i}
++                total={fields.length}
++                lockedCount={lockedCount}
++                open={openKey === f.key}
++                onToggle={() => setOpenKey(k => (k === f.key ? null : f.key))}
++                onPatch={changes => patch(f.key, changes)}
++                onMove={dir => move(i, dir)}
++                onRemove={() => remove(f.key)}
++              />
++            ))}
++          </div>
++
++          {unlabelled > 0 && (
++            <p className="text-xs text-amber-700 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2">
++              {unlabelled} question{unlabelled > 1 ? 's need' : ' needs'} a label before you save.
++            </p>
++          )}
++
++          <div>
++            <p className="text-xs font-bold text-[#546048] uppercase tracking-widest mb-2">
++              Add a question {fields.length >= MAX_FIELDS && `· limit ${MAX_FIELDS} reached`}
++            </p>
++            <div className="flex flex-wrap gap-2">
++              {FIELD_TYPES.map(t => (
++                <button
++                  key={t.value}
++                  type="button"
++                  onClick={() => add(t.value)}
++                  disabled={fields.length >= MAX_FIELDS}
++                  title={t.hint}
++                  className="px-3 py-1.5 rounded-full text-xs font-bold border border-[#c0bfb9] text-[#546048] hover:border-[#2a3b19] hover:text-[#2a3b19] transition-all disabled:opacity-30 disabled:cursor-not-allowed"
++                >
++                  {t.icon} {t.label}
++                </button>
++              ))}
++            </div>
++          </div>
++
++          <button
++            type="button"
++            onClick={resetToDefault}
++            className="text-xs text-[#546048] hover:text-[#2a3b19] underline"
++          >
++            Reset to the default form
++          </button>
++        </>
++      )}
++    </div>
++  );
++}
+diff -uNr -x node_modules -x package-lock.json -x '.*' pristine/components/FormFieldInput.jsx work/components/FormFieldInput.jsx
+--- a/components/FormFieldInput.jsx	1970-01-01 00:00:00.000000000 +0000
++++ b/components/FormFieldInput.jsx	2026-08-17 06:32:04.200961798 +0000
+@@ -0,0 +1,146 @@
++'use client';
++import { MAX_FILE_MB, MAX_FILE_BYTES } from '@/lib/formFields';
++
++/**
++ * Renders a single host-designed form field.
++ * Shared by the public RSVP form and the form builder's live preview
++ * (`disabled` mode), so the host sees exactly what guests will see.
++ */
++export default function FormFieldInput({ field, value, onChange, disabled = false, idPrefix = 'f' }) {
++  const id = `${idPrefix}-${field.key}`;
++  const common = {
++    id,
++    disabled,
++    placeholder: field.placeholder || undefined,
++    'aria-required': field.required || undefined,
++  };
++
++  function handleFile(e) {
++    const file = e.target.files?.[0];
++    if (!file) { onChange(null); return; }
++    if (file.size > MAX_FILE_BYTES) {
++      alert(`File must be under ${MAX_FILE_MB} MB.`);
++      e.target.value = '';
++      return;
++    }
++    const reader = new FileReader();
++    reader.onload = ev => onChange({ name: file.name, mime: file.type, dataURL: ev.target.result });
++    reader.readAsDataURL(file);
++  }
++
++  function toggleChoice(opt) {
++    const current = Array.isArray(value) ? value : [];
++    onChange(current.includes(opt) ? current.filter(v => v !== opt) : [...current, opt]);
++  }
++
++  // Consent renders its own inline label, so it skips the shared header.
++  if (field.type === 'consent') {
++    return (
++      <div>
++        <label
++          htmlFor={id}
++          className="flex items-start gap-3 cursor-pointer"
++          style={{ textTransform: 'none', letterSpacing: 'normal', fontSize: '0.9rem', fontWeight: 500 }}
++        >
++          <input
++            type="checkbox"
++            id={id}
++            disabled={disabled}
++            checked={value === true}
++            onChange={e => onChange(e.target.checked)}
++            className="mt-0.5 flex-shrink-0"
++          />
++          <span className="text-[#1c2410]">
++            {field.label}{field.required && <span className="text-red-500"> *</span>}
++          </span>
++        </label>
++        {field.helpText && <p className="text-xs text-[#546048] mt-1 pl-7">{field.helpText}</p>}
++      </div>
++    );
++  }
++
++  return (
++    <div>
++      <label htmlFor={id}>
++        {field.label}{field.required && <span className="text-red-500"> *</span>}
++      </label>
++      {field.helpText && <p className="text-xs text-[#546048] mb-2 normal-case">{field.helpText}</p>}
++
++      {field.type === 'textarea' && (
++        <textarea {...common} rows={4} value={value || ''} onChange={e => onChange(e.target.value)} />
++      )}
++
++      {['text', 'email', 'phone', 'number', 'date'].includes(field.type) && (
++        <input
++          {...common}
++          type={{ text: 'text', email: 'email', phone: 'tel', number: 'number', date: 'date' }[field.type]}
++          value={value ?? ''}
++          onChange={e => onChange(e.target.value)}
++        />
++      )}
++
++      {field.type === 'select' && (
++        <select {...common} value={value || ''} onChange={e => onChange(e.target.value)}>
++          <option value="">Select an option…</option>
++          {field.options.map(o => <option key={o} value={o}>{o}</option>)}
++        </select>
++      )}
++
++      {field.type === 'radio' && (
++        <div className="space-y-2">
++          {field.options.map(o => (
++            <label
++              key={o}
++              className="flex items-center gap-3 cursor-pointer bg-[#e8e7e1] border border-[#c0bfb9] rounded-xl px-4 py-2.5 hover:border-[#2a3b19] transition-colors"
++              style={{ textTransform: 'none', letterSpacing: 'normal', fontSize: '0.9rem', fontWeight: 500, marginBottom: 0 }}
++            >
++              <input
++                type="radio"
++                name={id}
++                disabled={disabled}
++                checked={value === o}
++                onChange={() => onChange(o)}
++                className="!w-auto"
++                style={{ accentColor: '#2a3b19' }}
++              />
++              <span className="text-[#1c2410]">{o}</span>
++            </label>
++          ))}
++        </div>
++      )}
++
++      {field.type === 'checkbox' && (
++        <div className="space-y-2">
++          {field.options.map(o => (
++            <label
++              key={o}
++              className="flex items-center gap-3 cursor-pointer bg-[#e8e7e1] border border-[#c0bfb9] rounded-xl px-4 py-2.5 hover:border-[#2a3b19] transition-colors"
++              style={{ textTransform: 'none', letterSpacing: 'normal', fontSize: '0.9rem', fontWeight: 500, marginBottom: 0 }}
++            >
++              <input
++                type="checkbox"
++                disabled={disabled}
++                checked={Array.isArray(value) && value.includes(o)}
++                onChange={() => toggleChoice(o)}
++              />
++              <span className="text-[#1c2410]">{o}</span>
++            </label>
++          ))}
++        </div>
++      )}
++
++      {field.type === 'file' && (
++        <label className={`flex items-center gap-3 bg-[#e8e7e1] border border-[#c0bfb9] rounded-xl px-4 py-3 transition-colors ${disabled ? 'opacity-60' : 'cursor-pointer hover:border-[#2a3b19]'}`}>
++          <span className="text-2xl flex-shrink-0">📎</span>
++          <span className="min-w-0">
++            <span className="text-sm font-semibold text-[#1c2410] block truncate">
++              {value?.name ? `${value.name} ✓` : 'Choose a file'}
++            </span>
++            <span className="text-xs text-[#546048]">Max {MAX_FILE_MB} MB</span>
++          </span>
++          <input type="file" id={id} disabled={disabled} className="hidden" onChange={handleFile} />
++        </label>
++      )}
++    </div>
++  );
++}
+diff -uNr -x node_modules -x package-lock.json -x '.*' pristine/components/Generator.jsx work/components/Generator.jsx
+--- a/components/Generator.jsx	2026-08-17 06:40:17.465923034 +0000
++++ b/components/Generator.jsx	2026-08-17 06:30:00.512966378 +0000
+@@ -16,6 +16,47 @@
+   'CODE128','CODE39','EAN13','EAN8','UPC','ITF14','MSI','pharmacode'
+ ];
+ 
++/* ──────────────────────────────────────────────────────────────────────────
++ * These presentational components MUST stay at module scope.
++ * When they were declared inside Generator(), React saw a brand-new
++ * component type on every render, so it unmounted the old <input> and
++ * mounted a fresh one on each keystroke — the field lost focus after a
++ * single character, which is why typing/backspace appeared to "break"
++ * after one character.
++ * ────────────────────────────────────────────────────────────────────────── */
++
++const Field = ({ label: lbl, id, type = 'text', placeholder, value, onChange, as: As = 'input', children }) => (
++  <div>
++    <label htmlFor={id}>{lbl}</label>
++    {As === 'textarea'
++      ? <textarea id={id} placeholder={placeholder} value={value} onChange={onChange} rows={3} />
++      : As === 'select'
++        ? <select id={id} value={value} onChange={onChange}>{children}</select>
++        : <input type={type} id={id} placeholder={placeholder} value={value} onChange={onChange} />
++    }
++  </div>
++);
++
++const SliderRow = ({ label: lbl, min, max, step, value, onChange, suffix = '' }) => (
++  <div className="mb-4">
++    <div className="flex justify-between mb-1">
++      <label style={{ marginBottom: 0 }}>{lbl}</label>
++      <span className="text-[#2a3b19] text-sm font-bold">{value}{suffix}</span>
++    </div>
++    <input type="range" min={min} max={max} step={step} value={value} onChange={onChange} className="w-full" />
++  </div>
++);
++
++const ColorRow = ({ label: lbl, value, onChange }) => (
++  <div className="mb-4">
++    <label>{lbl}</label>
++    <div className="flex items-center gap-3">
++      <input type="color" value={value} onChange={onChange} className="!w-10 !h-10 !p-1" />
++      <span className="text-sm text-[#546048] font-mono">{value}</span>
++    </div>
++  </div>
++);
++
+ export default function Generator() {
+   const [mode, setMode] = useState('qr');
+   const [qrType, setQrType] = useState('url');
+@@ -155,39 +196,6 @@
+     a.click();
+   }
+ 
+-  // Shared field input
+-  const Field = ({ label: lbl, id, type = 'text', placeholder, value, onChange, as: As = 'input', children }) => (
+-    <div>
+-      <label>{lbl}</label>
+-      {As === 'textarea'
+-        ? <textarea id={id} placeholder={placeholder} value={value} onChange={onChange} rows={3} />
+-        : As === 'select'
+-          ? <select id={id} value={value} onChange={onChange}>{children}</select>
+-          : <input type={type} id={id} placeholder={placeholder} value={value} onChange={onChange} />
+-      }
+-    </div>
+-  );
+-
+-  const SliderRow = ({ label: lbl, min, max, step, value, onChange, suffix = '' }) => (
+-    <div className="mb-4">
+-      <div className="flex justify-between mb-1">
+-        <label style={{ marginBottom: 0 }}>{lbl}</label>
+-        <span className="text-[#2a3b19] text-sm font-bold">{value}{suffix}</span>
+-      </div>
+-      <input type="range" min={min} max={max} step={step} value={value} onChange={onChange} className="w-full" />
+-    </div>
+-  );
+-
+-  const ColorRow = ({ label: lbl, value, onChange }) => (
+-    <div className="mb-4">
+-      <label>{lbl}</label>
+-      <div className="flex items-center gap-3">
+-        <input type="color" value={value} onChange={onChange} className="!w-10 !h-10 !p-1" />
+-        <span className="text-sm text-[#546048] font-mono">{value}</span>
+-      </div>
+-    </div>
+-  );
+-
+   return (
+     <div className="max-w-6xl mx-auto px-4 py-10">
+       <div className="mb-8 text-center">
+diff -uNr -x node_modules -x package-lock.json -x '.*' pristine/lib/formFields.js work/lib/formFields.js
+--- a/lib/formFields.js	1970-01-01 00:00:00.000000000 +0000
++++ b/lib/formFields.js	2026-08-17 06:38:46.120946914 +0000
+@@ -0,0 +1,280 @@
++/**
++ * Shared definition of the host-designed RSVP form.
++ *
++ * A form is an ordered array of field descriptors stored on the Event
++ * (`event.formFields`). Three of them are "core" fields whose answers map onto
++ * real Attendee columns (name / email / phone) because ticketing, the
++ * one-RSVP-per-email rule, broadcasts and CSV export all depend on them.
++ * Everything else is a custom field whose answer lands in `attendee.responses`.
++ *
++ * This module is imported by both client components and API routes, so it must
++ * stay free of any React / Node-only imports.
++ */
++
++// ── Field types ────────────────────────────────────────────────────────────
++export const FIELD_TYPES = [
++  { value: 'text',     label: 'Short text',        icon: '🔤', hint: 'A single line of text' },
++  { value: 'textarea', label: 'Long text',         icon: '📝', hint: 'A multi-line answer' },
++  { value: 'email',     label: 'Email',            icon: '✉️', hint: 'Validated email address' },
++  { value: 'phone',    label: 'Phone',             icon: '📞', hint: 'Phone number' },
++  { value: 'number',   label: 'Number',            icon: '🔢', hint: 'Numbers only' },
++  { value: 'date',     label: 'Date',              icon: '📅', hint: 'Date picker' },
++  { value: 'select',   label: 'Dropdown',          icon: '🔽', hint: 'Pick one from a list' },
++  { value: 'radio',    label: 'Single choice',     icon: '🔘', hint: 'Radio buttons — pick one' },
++  { value: 'checkbox', label: 'Multiple choice',   icon: '☑️', hint: 'Checkboxes — pick any' },
++  { value: 'consent',  label: 'Consent checkbox',  icon: '✅', hint: 'A single tick box to agree' },
++  { value: 'file',     label: 'File upload',       icon: '📎', hint: 'Guests attach a file or image' },
++];
++
++export const FIELD_TYPE_VALUES = FIELD_TYPES.map(t => t.value);
++
++/** Types that need a list of choices. */
++export const OPTION_TYPES = ['select', 'radio', 'checkbox'];
++
++/** Types that support a placeholder. */
++export const PLACEHOLDER_TYPES = ['text', 'textarea', 'email', 'phone', 'number'];
++
++// ── Limits ─────────────────────────────────────────────────────────────────
++export const MAX_FIELDS       = 30;
++export const MAX_OPTIONS      = 30;
++export const MAX_LABEL_LEN    = 120;
++export const MAX_TEXT_LEN     = 2000;
++export const MAX_FILE_MB      = 2;
++export const MAX_FILE_BYTES   = MAX_FILE_MB * 1024 * 1024;
++// base64 inflates by ~4/3; allow a little headroom for the data-URL prefix
++export const MAX_FILE_DATAURL = Math.ceil(MAX_FILE_BYTES * 1.4);
++
++// ── Core fields ────────────────────────────────────────────────────────────
++/**
++ * `locked: true` → cannot be deleted, retyped, reordered or made optional.
++ * Hosts may still change the label, placeholder and help text.
++ * `phone` is core (it maps to the phone column that WhatsApp broadcasts use)
++ * but hosts can remove it or make it required.
++ */
++export const CORE_FIELDS = [
++  { key: 'name',  type: 'text',  label: 'Full name',     placeholder: 'Jane Doe',          required: true,  core: true, locked: true },
++  { key: 'email', type: 'email', label: 'Email address', placeholder: 'jane@example.com',  required: true,  core: true, locked: true },
++  { key: 'phone', type: 'phone', label: 'Phone number',  placeholder: '+2348012345678',    required: false, core: true, locked: false },
++];
++
++export const CORE_KEYS = CORE_FIELDS.map(f => f.key);
++
++/** A fresh copy of the default form — used for new events and legacy events. */
++export function defaultFormFields() {
++  return CORE_FIELDS.map(f => ({ ...f, helpText: '', options: [] }));
++}
++
++let counter = 0;
++/** Stable, collision-resistant key for a new custom field. */
++export function makeFieldKey() {
++  counter += 1;
++  return `f_${Date.now().toString(36)}${counter.toString(36)}${Math.random().toString(36).slice(2, 6)}`;
++}
++
++/** A blank custom field of the given type. */
++export function makeField(type = 'text') {
++  return {
++    key: makeFieldKey(),
++    type: FIELD_TYPE_VALUES.includes(type) ? type : 'text',
++    label: '',
++    placeholder: '',
++    helpText: '',
++    required: false,
++    options: OPTION_TYPES.includes(type) ? ['Option 1', 'Option 2'] : [],
++    core: false,
++    locked: false,
++  };
++}
++
++const str = (v, max = MAX_LABEL_LEN) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
++
++/**
++ * Sanitise an arbitrary array into a valid form definition.
++ * Always returns core name + email first, in that order, required and locked.
++ * Safe to run on untrusted request bodies.
++ */
++export function normalizeFormFields(input) {
++  if (!Array.isArray(input) || input.length === 0) return defaultFormFields();
++
++  const seen = new Set();
++  const cleaned = [];
++
++  for (const raw of input) {
++    if (!raw || typeof raw !== 'object') continue;
++    if (cleaned.length >= MAX_FIELDS) break;
++
++    const key = str(raw.key, 64);
++    if (!key || seen.has(key)) continue;
++
++    const coreDef = CORE_FIELDS.find(c => c.key === key);
++    const type = coreDef
++      ? coreDef.type
++      : (FIELD_TYPE_VALUES.includes(raw.type) ? raw.type : 'text');
++
++    const label = str(raw.label) || coreDef?.label || 'Untitled question';
++
++    let options = [];
++    if (OPTION_TYPES.includes(type)) {
++      // De-duplicate before capping — duplicate choices make answers ambiguous,
++      // and slicing first would leave fewer than MAX_OPTIONS usable choices.
++      options = [...new Set(
++        (Array.isArray(raw.options) ? raw.options : []).map(o => str(o)).filter(Boolean)
++      )].slice(0, MAX_OPTIONS);
++      if (options.length === 0) options = ['Option 1'];
++    }
++
++    seen.add(key);
++    cleaned.push({
++      key,
++      type,
++      label,
++      placeholder: PLACEHOLDER_TYPES.includes(type) ? str(raw.placeholder) : '',
++      helpText: str(raw.helpText, 240),
++      required: coreDef?.locked ? true : !!raw.required,
++      options,
++      core: !!coreDef,
++      locked: !!coreDef?.locked,
++    });
++  }
++
++  // Guarantee the locked core fields exist and lead the form.
++  const locked = CORE_FIELDS.filter(c => c.locked);
++  for (const def of [...locked].reverse()) {
++    const existing = cleaned.find(f => f.key === def.key);
++    if (existing) {
++      cleaned.splice(cleaned.indexOf(existing), 1);
++      cleaned.unshift(existing);
++    } else {
++      cleaned.unshift({ ...def, helpText: '', options: [] });
++    }
++  }
++
++  // Cap after the core fields are prepended so the total never exceeds the limit.
++  return cleaned.slice(0, MAX_FIELDS);
++}
++
++/** Read an event's form, falling back to the default for events created before this feature. */
++export function getFormFields(event) {
++  const fields = event?.formFields;
++  if (!Array.isArray(fields) || fields.length === 0) return defaultFormFields();
++  return normalizeFormFields(fields);
++}
++
++/** The empty answer for a field — used to seed client form state. */
++export function emptyValue(field) {
++  if (field.type === 'checkbox') return [];
++  if (field.type === 'consent') return false;
++  if (field.type === 'file') return null;
++  return '';
++}
++
++export function blankAnswers(fields) {
++  const out = {};
++  for (const f of fields) out[f.key] = emptyValue(f);
++  return out;
++}
++
++/** True when an answer counts as "not filled in". */
++export function isEmptyAnswer(field, value) {
++  if (field.type === 'checkbox') return !Array.isArray(value) || value.length === 0;
++  if (field.type === 'consent') return value !== true;
++  if (field.type === 'file') return !value || !value.dataURL;
++  if (value === null || value === undefined) return true;
++  return String(value).trim() === '';
++}
++
++const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
++
++/**
++ * Validate one answer and return the value to persist.
++ * @returns {{ error?: string, value?: any }}
++ */
++export function coerceAnswer(field, raw) {
++  if (isEmptyAnswer(field, raw)) {
++    if (field.required) return { error: `${field.label} is required.` };
++    return { value: emptyValue(field) };
++  }
++
++  switch (field.type) {
++    case 'email': {
++      const v = String(raw).trim();
++      if (!EMAIL_RE.test(v)) return { error: `${field.label} must be a valid email address.` };
++      return { value: v };
++    }
++    case 'number': {
++      const n = Number(raw);
++      if (!Number.isFinite(n)) return { error: `${field.label} must be a number.` };
++      return { value: n };
++    }
++    case 'date': {
++      const v = String(raw).trim();
++      if (Number.isNaN(new Date(v).getTime())) return { error: `${field.label} must be a valid date.` };
++      return { value: v };
++    }
++    case 'select':
++    case 'radio': {
++      const v = String(raw).trim();
++      if (!field.options.includes(v)) return { error: `${field.label}: "${v}" is not one of the choices.` };
++      return { value: v };
++    }
++    case 'checkbox': {
++      const picked = [...new Set(raw.map(v => String(v).trim()))];
++      const bad = picked.find(v => !field.options.includes(v));
++      if (bad) return { error: `${field.label}: "${bad}" is not one of the choices.` };
++      return { value: picked };
++    }
++    case 'consent':
++      return { value: true };
++    case 'file': {
++      const { dataURL, name, mime } = raw;
++      if (typeof dataURL !== 'string' || !dataURL.startsWith('data:')) {
++        return { error: `${field.label}: unsupported file.` };
++      }
++      if (dataURL.length > MAX_FILE_DATAURL) {
++        return { error: `${field.label}: file must be under ${MAX_FILE_MB} MB.` };
++      }
++      return { value: { name: str(name, 200), mime: str(mime, 100), dataURL } };
++    }
++    default:
++      return { value: String(raw).trim().slice(0, MAX_TEXT_LEN) };
++  }
++}
++
++/**
++ * Validate a whole submission.
++ * @param {Array} fields  normalised form definition
++ * @param {Object} answers  { [fieldKey]: value }
++ * @returns {{ errors: string[], core: {name,email,phone}, responses: Array }}
++ */
++export function collectSubmission(fields, answers = {}) {
++  const errors = [];
++  const core = { name: '', email: '', phone: '' };
++  const responses = [];
++
++  for (const field of fields) {
++    const { error, value } = coerceAnswer(field, answers?.[field.key]);
++    if (error) { errors.push(error); continue; }
++
++    if (CORE_KEYS.includes(field.key)) {
++      core[field.key] = typeof value === 'string' ? value : '';
++      continue;
++    }
++    // Skip blank optional answers so the attendee record stays tidy.
++    if (isEmptyAnswer(field, value)) continue;
++
++    responses.push({ fieldKey: field.key, label: field.label, type: field.type, value });
++  }
++
++  return { errors, core, responses };
++}
++
++/** Render an answer as plain text — used by the attendee table and CSV export. */
++export function formatAnswer(response) {
++  if (!response) return '';
++  const { type, value } = response;
++  if (value === null || value === undefined) return '';
++  if (type === 'checkbox') return Array.isArray(value) ? value.join(', ') : String(value);
++  if (type === 'consent') return value ? 'Yes' : 'No';
++  if (type === 'file') return value?.name || 'File attached';
++  return String(value);
++}
+diff -uNr -x node_modules -x package-lock.json -x '.*' pristine/models/Attendee.js work/models/Attendee.js
+--- a/models/Attendee.js	2026-08-17 06:40:17.467294831 +0000
++++ b/models/Attendee.js	2026-08-17 06:31:40.392962680 +0000
+@@ -1,5 +1,18 @@
+ import mongoose from 'mongoose';
+ 
++// One answer to a host-designed custom question.
++// The label and type are snapshotted at submission time so the host's
++// attendee list still reads correctly if the form is edited afterwards.
++const ResponseSchema = new mongoose.Schema(
++  {
++    fieldKey: { type: String, required: true },
++    label: { type: String, default: '' },
++    type: { type: String, default: 'text' },
++    value: { type: mongoose.Schema.Types.Mixed },
++  },
++  { _id: false }
++);
++
+ const AttendeeSchema = new mongoose.Schema(
+   {
+     eventId: {
+@@ -12,6 +25,9 @@
+     email: { type: String, required: true, lowercase: true, trim: true },
+     phone: { type: String, default: '' },
+ 
++    // Answers to the host's custom questions (everything beyond name/email/phone)
++    responses: { type: [ResponseSchema], default: [] },
++
+     // Photo uploaded by attendee (base64)
+     photo: { type: String, default: '' },
+ 
+diff -uNr -x node_modules -x package-lock.json -x '.*' pristine/models/Event.js work/models/Event.js
+--- a/models/Event.js	2026-08-17 06:40:17.467268518 +0000
++++ b/models/Event.js	2026-08-17 06:31:35.060962877 +0000
+@@ -1,4 +1,21 @@
+ import mongoose from 'mongoose';
++import { FIELD_TYPE_VALUES, defaultFormFields } from '@/lib/formFields';
++
++// One question on the host-designed RSVP form.
++const FormFieldSchema = new mongoose.Schema(
++  {
++    key: { type: String, required: true },      // stable id — also the answer key
++    type: { type: String, enum: FIELD_TYPE_VALUES, default: 'text' },
++    label: { type: String, required: true, trim: true },
++    placeholder: { type: String, default: '' },
++    helpText: { type: String, default: '' },
++    required: { type: Boolean, default: false },
++    options: { type: [String], default: [] },   // select / radio / checkbox choices
++    core: { type: Boolean, default: false },    // answer maps to a real Attendee column
++    locked: { type: Boolean, default: false },  // cannot be removed or retyped
++  },
++  { _id: false }
++);
+ 
+ const EventSchema = new mongoose.Schema(
+   {
+@@ -24,6 +41,11 @@
+       default: () => 'EVT-' + Math.random().toString(36).substring(2, 8).toUpperCase(),
+     },
+ 
++    // Host-designed RSVP form. An empty array means "use the default
++    // name / email / phone form" — that's what events created before this
++    // feature was added will have.
++    formFields: { type: [FormFieldSchema], default: defaultFormFields },
++
+     // Avatar / photo-composite feature
+     avatarsEnabled: { type: Boolean, default: false }, // host opt-in
+     frameImage: { type: String, default: '' },   // base64 template image

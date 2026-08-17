@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
 import Event from '@/models/Event';
 import Attendee from '@/models/Attendee';
+import { getFormFields, collectSubmission } from '@/lib/formFields';
 
 // POST /api/public/[code]/rsvp — submit RSVP (no auth required)
 export async function POST(req, { params }) {
@@ -22,14 +23,30 @@ export async function POST(req, { params }) {
     }
   }
 
-  const { name, email, phone, photo, compositeImage } = await req.json();
+  const body = await req.json();
+  const { photo, compositeImage } = body;
 
-  if (!name || !email) {
+  // Answers arrive keyed by form-field key. Older clients posted name/email/phone
+  // at the top level, so those are accepted as a fallback.
+  const answers = {
+    name: body.name,
+    email: body.email,
+    phone: body.phone,
+    ...(body.answers && typeof body.answers === 'object' ? body.answers : {}),
+  };
+
+  const fields = getFormFields(event);
+  const { errors, core, responses } = collectSubmission(fields, answers);
+
+  if (errors.length) {
+    return NextResponse.json({ error: errors[0], errors }, { status: 400 });
+  }
+  if (!core.name || !core.email) {
     return NextResponse.json({ error: 'Name and email are required.' }, { status: 400 });
   }
 
   // Check if already registered
-  const existing = await Attendee.findOne({ eventId: event._id, email: email.toLowerCase() });
+  const existing = await Attendee.findOne({ eventId: event._id, email: core.email.toLowerCase() });
   if (existing) {
     return NextResponse.json({
       error: 'You have already registered for this event.',
@@ -40,9 +57,10 @@ export async function POST(req, { params }) {
 
   const attendee = await Attendee.create({
     eventId: event._id,
-    name: name.trim(),
-    email: email.toLowerCase(),
-    phone: phone || '',
+    name: core.name.trim(),
+    email: core.email.toLowerCase(),
+    phone: core.phone || '',
+    responses,
     photo: photo || '',
     compositeImage: compositeImage || '',
   });

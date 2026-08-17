@@ -1,9 +1,12 @@
 'use client';
 import { useState } from 'react';
 import FrameZoneSelector from '@/components/FrameZoneSelector';
+import FormBuilder from '@/components/FormBuilder';
+import { getFormFields } from '@/lib/formFields';
 
 export default function EditEventPanel({ event, onSave, onCancel }) {
   const [description, setDescription]     = useState(event.description || '');
+  const [formFields, setFormFields]       = useState(() => getFormFields(event));
   const [avatarsEnabled, setAvatarsEnabled] = useState(!!event.avatarsEnabled);
   const [frameImage, setFrameImage]       = useState(event.frameImage || '');
   const [frameZone, setFrameZone]         = useState(event.frameZone  || null);
@@ -23,12 +26,16 @@ export default function EditEventPanel({ event, onSave, onCancel }) {
   }
 
   async function handleSave() {
+    if (formFields.some(f => !f.label.trim())) {
+      setError('Every question on the registration form needs a label.');
+      return;
+    }
     setSaving(true);
     setError('');
     const res = await fetch(`/api/events/${event._id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description, avatarsEnabled, frameImage, frameZone }),
+      body: JSON.stringify({ description, formFields, avatarsEnabled, frameImage, frameZone }),
     });
     const data = await res.json();
     setSaving(false);
@@ -51,6 +58,14 @@ export default function EditEventPanel({ event, onSave, onCancel }) {
           placeholder="Tell guests what to expect…"
           className="w-full resize-none"
         />
+      </div>
+
+      {/* Registration form builder */}
+      <div className="border-t border-[#c0bfb9] pt-6">
+        <FormBuilder value={formFields} onChange={setFormFields} />
+        <p className="text-xs text-[#546048] mt-3 leading-relaxed">
+          Changing the form only affects future RSVPs — answers already collected stay as they were.
+        </p>
       </div>
 
       {/* Avatar toggle */}

@@ -1,4 +1,21 @@
 import mongoose from 'mongoose';
+import { FIELD_TYPE_VALUES, defaultFormFields } from '@/lib/formFields';
+
+// One question on the host-designed RSVP form.
+const FormFieldSchema = new mongoose.Schema(
+  {
+    key: { type: String, required: true },      // stable id — also the answer key
+    type: { type: String, enum: FIELD_TYPE_VALUES, default: 'text' },
+    label: { type: String, required: true, trim: true },
+    placeholder: { type: String, default: '' },
+    helpText: { type: String, default: '' },
+    required: { type: Boolean, default: false },
+    options: { type: [String], default: [] },   // select / radio / checkbox choices
+    core: { type: Boolean, default: false },    // answer maps to a real Attendee column
+    locked: { type: Boolean, default: false },  // cannot be removed or retyped
+  },
+  { _id: false }
+);
 
 const EventSchema = new mongoose.Schema(
   {
@@ -23,6 +40,11 @@ const EventSchema = new mongoose.Schema(
       unique: true,
       default: () => 'EVT-' + Math.random().toString(36).substring(2, 8).toUpperCase(),
     },
+
+    // Host-designed RSVP form. An empty array means "use the default
+    // name / email / phone form" — that's what events created before this
+    // feature was added will have.
+    formFields: { type: [FormFieldSchema], default: defaultFormFields },
 
     // Avatar / photo-composite feature
     avatarsEnabled: { type: Boolean, default: false }, // host opt-in

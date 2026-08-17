@@ -1,7 +1,9 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import AvatarCompositor from '@/components/AvatarCompositor';
 import QRTicket from '@/components/QRTicket';
+import FormFieldInput from '@/components/FormFieldInput';
+import { getFormFields, blankAnswers, isEmptyAnswer } from '@/lib/formFields';
 
 export default function EventRSVPClient({ code }) {
   const [event, setEvent] = useState(null);
@@ -9,8 +11,8 @@ export default function EventRSVPClient({ code }) {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
-  // Form state
-  const [form, setForm] = useState({ name: '', email: '', phone: '' });
+  // Answers to the host-designed form, keyed by field key
+  const [answers, setAnswers] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null); // { ticketCode, attendeeId }
   const [error, setError] = useState('');
@@ -31,15 +33,38 @@ export default function EventRSVPClient({ code }) {
       });
   }, [code]);
 
-  const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
+  // The host's form definition (falls back to name/email/phone for older events)
+  const fields = useMemo(() => (event ? getFormFields(event) : []), [event]);
+
+  // Seed one blank answer per field once the event has loaded
+  useEffect(() => {
+    if (fields.length) setAnswers(blankAnswers(fields));
+  }, [fields]);
+
+  const setAnswer = useCallback((key, value) => {
+    setAnswers(a => ({ ...a, [key]: value }));
+  }, []);
 
   async function handleSubmit(e) {
     e.preventDefault();
+
+    const missing = fields.find(f => f.required && isEmptyAnswer(f, answers[f.key]));
+    if (missing) {
+      setError(`${missing.label} is required.`);
+      return;
+    }
+
     setSubmitting(true); setError('');
     const res = await fetch(`/api/public/${code}/rsvp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form }),
+      body: JSON.stringify({
+        // Core values stay top-level for backwards compatibility
+        name: answers.name || '',
+        email: answers.email || '',
+        phone: answers.phone || '',
+        answers,
+      }),
     });
     const data = await res.json();
     setSubmitting(false);
@@ -133,7 +158,7 @@ export default function EventRSVPClient({ code }) {
           </p>
           <QRTicket
             ticketCode={result.ticketCode}
-            guestName={form.name}
+            guestName={answers.name}
             eventTitle={event.title}
             eventDate={event.date}
             eventVenue={event.venue}
@@ -277,19 +302,16 @@ export default function EventRSVPClient({ code }) {
       <div className="bg-[#f2f1eb] border border-[#c0bfb9] rounded-2xl p-6">
         <h2 className="text-xl font-extrabold text-[#1c2410] mb-5">✋ I&apos;ll be there!</h2>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label>Full name *</label>
-            <input placeholder="Jane Doe" value={form.name} onChange={set('name')} required />
-          </div>
-          <div>
-            <label>Email address *</label>
-            <input type="email" placeholder="jane@example.com" value={form.email} onChange={set('email')} required />
-          </div>
-          <div>
-            <label>Phone number</label>
-            <input type="tel" placeholder="+2348012345678" value={form.phone} onChange={set('phone')} />
-          </div>
+        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+          {/* Host-designed fields */}
+          {fields.map(field => (
+            <FormFieldInput
+              key={field.key}
+              field={field}
+              value={answers[field.key]}
+              onChange={v => setAnswer(field.key, v)}
+            />
+          ))}
 
           {/* Hint if avatar cards are available */}
           {canMakeAvatar && (

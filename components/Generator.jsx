@@ -16,6 +16,47 @@ const BARCODE_FORMATS = [
   'CODE128','CODE39','EAN13','EAN8','UPC','ITF14','MSI','pharmacode'
 ];
 
+/* ──────────────────────────────────────────────────────────────────────────
+ * These presentational components MUST stay at module scope.
+ * When they were declared inside Generator(), React saw a brand-new
+ * component type on every render, so it unmounted the old <input> and
+ * mounted a fresh one on each keystroke — the field lost focus after a
+ * single character, which is why typing/backspace appeared to "break"
+ * after one character.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+const Field = ({ label: lbl, id, type = 'text', placeholder, value, onChange, as: As = 'input', children }) => (
+  <div>
+    <label htmlFor={id}>{lbl}</label>
+    {As === 'textarea'
+      ? <textarea id={id} placeholder={placeholder} value={value} onChange={onChange} rows={3} />
+      : As === 'select'
+        ? <select id={id} value={value} onChange={onChange}>{children}</select>
+        : <input type={type} id={id} placeholder={placeholder} value={value} onChange={onChange} />
+    }
+  </div>
+);
+
+const SliderRow = ({ label: lbl, min, max, step, value, onChange, suffix = '' }) => (
+  <div className="mb-4">
+    <div className="flex justify-between mb-1">
+      <label style={{ marginBottom: 0 }}>{lbl}</label>
+      <span className="text-[#2a3b19] text-sm font-bold">{value}{suffix}</span>
+    </div>
+    <input type="range" min={min} max={max} step={step} value={value} onChange={onChange} className="w-full" />
+  </div>
+);
+
+const ColorRow = ({ label: lbl, value, onChange }) => (
+  <div className="mb-4">
+    <label>{lbl}</label>
+    <div className="flex items-center gap-3">
+      <input type="color" value={value} onChange={onChange} className="!w-10 !h-10 !p-1" />
+      <span className="text-sm text-[#546048] font-mono">{value}</span>
+    </div>
+  </div>
+);
+
 export default function Generator() {
   const [mode, setMode] = useState('qr');
   const [qrType, setQrType] = useState('url');
@@ -154,39 +195,6 @@ export default function Generator() {
     a.download = `${mode}-${Date.now()}.png`;
     a.click();
   }
-
-  // Shared field input
-  const Field = ({ label: lbl, id, type = 'text', placeholder, value, onChange, as: As = 'input', children }) => (
-    <div>
-      <label>{lbl}</label>
-      {As === 'textarea'
-        ? <textarea id={id} placeholder={placeholder} value={value} onChange={onChange} rows={3} />
-        : As === 'select'
-          ? <select id={id} value={value} onChange={onChange}>{children}</select>
-          : <input type={type} id={id} placeholder={placeholder} value={value} onChange={onChange} />
-      }
-    </div>
-  );
-
-  const SliderRow = ({ label: lbl, min, max, step, value, onChange, suffix = '' }) => (
-    <div className="mb-4">
-      <div className="flex justify-between mb-1">
-        <label style={{ marginBottom: 0 }}>{lbl}</label>
-        <span className="text-[#2a3b19] text-sm font-bold">{value}{suffix}</span>
-      </div>
-      <input type="range" min={min} max={max} step={step} value={value} onChange={onChange} className="w-full" />
-    </div>
-  );
-
-  const ColorRow = ({ label: lbl, value, onChange }) => (
-    <div className="mb-4">
-      <label>{lbl}</label>
-      <div className="flex items-center gap-3">
-        <input type="color" value={value} onChange={onChange} className="!w-10 !h-10 !p-1" />
-        <span className="text-sm text-[#546048] font-mono">{value}</span>
-      </div>
-    </div>
-  );
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-10">

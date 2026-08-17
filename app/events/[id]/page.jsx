@@ -16,21 +16,28 @@ function AnswerValue({ response: r }) {
   if (r.type === 'images' && Array.isArray(r.value) && r.value.length) {
     return (
       <div className="flex flex-wrap gap-2 mt-1">
-        {r.value.map((img, i) => (
-          <a
-            key={i}
-            href={img.dataURL}
-            download={img.name || `image-${i + 1}.jpg`}
-            title={`Download ${img.name || `image ${i + 1}`}`}
-            className="block"
-          >
-            <img
-              src={img.dataURL}
-              alt={img.name || `Image ${i + 1}`}
-              className="w-16 h-16 object-cover rounded-lg border border-[#c0bfb9] hover:border-[#2a3b19] transition-colors"
-            />
-          </a>
-        ))}
+        {r.value.map((img, i) => {
+          const src = img.url || img.dataURL;
+          if (!src) return null;
+          return (
+            <a
+              key={i}
+              href={src}
+              // Hosted images open in a new tab; inline ones download directly.
+              {...(img.url
+                ? { target: '_blank', rel: 'noopener noreferrer' }
+                : { download: img.name || `image-${i + 1}.jpg` })}
+              title={img.name || `Image ${i + 1}`}
+              className="block"
+            >
+              <img
+                src={src}
+                alt={img.name || `Image ${i + 1}`}
+                className="w-16 h-16 object-cover rounded-lg border border-[#c0bfb9] hover:border-[#2a3b19] transition-colors"
+              />
+            </a>
+          );
+        })}
       </div>
     );
   }

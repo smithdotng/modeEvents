@@ -12,6 +12,7 @@ import {
   makeField,
   defaultFormFields,
   blankAnswers,
+  remoteUploadsEnabled,
 } from '@/lib/formFields';
 
 const typeMeta = t => FIELD_TYPES.find(f => f.value === t) || FIELD_TYPES[0];
@@ -171,8 +172,9 @@ function FieldCard({ field, index, total, lockedCount, open, onToggle, onPatch, 
                 ))}
               </select>
               <p className="text-xs text-[#546048] mt-1 normal-case">
-                Photos are resized in the guest&apos;s browser before upload. Keep this low if you
-                expect a lot of RSVPs — images are stored with each attendee record.
+                {remoteUploadsEnabled()
+                  ? 'Photos are resized in the guest’s browser, then stored on your file host.'
+                  : 'Photos are resized in the guest’s browser and stored with each attendee record. Keep this low if you expect a lot of RSVPs.'}
               </p>
             </div>
           )}

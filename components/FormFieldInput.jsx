@@ -5,14 +5,23 @@ import {
   MAX_FILE_BYTES,
   MAX_IMAGES_DEFAULT,
   downscaleImageFile,
+  remoteUploadsEnabled,
 } from '@/lib/formFields';
+import { uploadImage } from '@/lib/uploadClient';
 
 /**
  * Renders a single host-designed form field.
  * Shared by the public RSVP form and the form builder's live preview
  * (`disabled` mode), so the host sees exactly what guests will see.
  */
-export default function FormFieldInput({ field, value, onChange, disabled = false, idPrefix = 'f' }) {
+export default function FormFieldInput({
+  field,
+  value,
+  onChange,
+  disabled = false,
+  idPrefix = 'f',
+  eventCode = '',
+}) {
   const id = `${idPrefix}-${field.key}`;
   const [imgBusy, setImgBusy] = useState(false);
   const [imgError, setImgError] = useState('');
@@ -55,13 +64,17 @@ export default function FormFieldInput({ field, value, onChange, disabled = fals
       return;
     }
 
+    // With a file host configured, images go straight there and we keep only a
+    // URL. Otherwise they are downscaled and carried inline as base64.
+    const useRemote = remoteUploadsEnabled() && !!eventCode;
+
     setImgBusy(true);
     const accepted = [];
     const failed = [];
     for (const file of picked) {
       if (!file.type.startsWith('image/')) { failed.push(`${file.name} is not an image`); continue; }
       try {
-        accepted.push(await downscaleImageFile(file));
+        accepted.push(useRemote ? await uploadImage(file, eventCode) : await downscaleImageFile(file));
       } catch (err) {
         failed.push(err.message);
       }
@@ -184,7 +197,7 @@ export default function FormFieldInput({ field, value, onChange, disabled = fals
               {images.map((img, i) => (
                 <div key={i} className="relative group">
                   <img
-                    src={img.dataURL}
+                    src={img.url || img.dataURL}
                     alt={img.name || `Image ${i + 1}`}
                     className="w-full aspect-square object-cover rounded-xl border border-[#c0bfb9]"
                   />
@@ -215,7 +228,7 @@ export default function FormFieldInput({ field, value, onChange, disabled = fals
             <span className="min-w-0">
               <span className="text-sm font-semibold text-[#1c2410] block">
                 {imgBusy
-                  ? 'Processing images…'
+                  ? 'Uploading images…'
                   : imagesLeft <= 0
                     ? `Maximum of ${maxImages} reached`
                     : images.length

@@ -3,7 +3,14 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import AvatarCompositor from '@/components/AvatarCompositor';
 import QRTicket from '@/components/QRTicket';
 import FormFieldInput from '@/components/FormFieldInput';
-import { getFormFields, blankAnswers, isEmptyAnswer } from '@/lib/formFields';
+import {
+  getFormFields,
+  blankAnswers,
+  isEmptyAnswer,
+  estimateSubmissionBytes,
+  formatBytes,
+  MAX_RESPONSES_BYTES,
+} from '@/lib/formFields';
 
 export default function EventRSVPClient({ code }) {
   const [event, setEvent] = useState(null);
@@ -51,6 +58,17 @@ export default function EventRSVPClient({ code }) {
     const missing = fields.find(f => f.required && isEmptyAnswer(f, answers[f.key]));
     if (missing) {
       setError(`${missing.label} is required.`);
+      return;
+    }
+
+    // Catch oversized submissions here: the hosting platform rejects large
+    // request bodies with a bare 413 that we cannot turn into a useful message.
+    const size = estimateSubmissionBytes(fields, answers);
+    if (size > MAX_RESPONSES_BYTES) {
+      setError(
+        `Your answers come to ${formatBytes(size)}, which is over the ` +
+        `${formatBytes(MAX_RESPONSES_BYTES)} limit. Please remove or replace some attachments.`
+      );
       return;
     }
 
@@ -308,6 +326,7 @@ export default function EventRSVPClient({ code }) {
             <FormFieldInput
               key={field.key}
               field={field}
+              eventCode={code}
               value={answers[field.key]}
               onChange={v => setAnswer(field.key, v)}
             />

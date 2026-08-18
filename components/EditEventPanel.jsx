@@ -48,6 +48,8 @@ export default function EditEventPanel({ event, onSave, onCancel }) {
   const [description, setDescription]     = useState(event.description || '');
   const [date, setDate]                   = useState(() => toLocalInput(event.date));
   const [endDate, setEndDate]             = useState(() => toLocalInput(event.endDate));
+  const [venue, setVenue]                 = useState(event.venue || '');
+  const [address, setAddress]             = useState(event.address || '');
   const [formFields, setFormFields]       = useState(() => getFormFields(event));
   const [coverImage, setCoverImage]       = useState(event.coverImage || '');
   const [coverBusy, setCoverBusy]         = useState(false);
@@ -59,6 +61,8 @@ export default function EditEventPanel({ event, onSave, onCancel }) {
 
   const dateChanged =
     date !== toLocalInput(event.date) || endDate !== toLocalInput(event.endDate);
+  const venueChanged =
+    venue !== (event.venue || '') || address !== (event.address || '');
 
   async function handleCoverUpload(e) {
     const file = e.target.files?.[0];
@@ -118,6 +122,9 @@ export default function EditEventPanel({ event, onSave, onCancel }) {
     // (and so a re-save can't drift the stored instant).
     if (date !== toLocalInput(event.date)) payload.date = toISO(date);
     if (endDate !== toLocalInput(event.endDate)) payload.endDate = toISO(endDate) || null;
+
+    if (venue !== (event.venue || '')) payload.venue = venue.trim();
+    if (address !== (event.address || '')) payload.address = address.trim();
 
     const body = JSON.stringify(payload);
 
@@ -240,14 +247,47 @@ export default function EditEventPanel({ event, onSave, onCancel }) {
           </div>
         </div>
 
-        {dateChanged && (
-          <p className="text-xs text-amber-700 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2 mt-3 leading-relaxed">
-            You&apos;re changing when this event happens. Guests who already RSVPed are
-            <strong> not</strong> notified automatically — use Broadcast on the Attendees tab
-            to tell them, and note their existing tickets stay valid.
-          </p>
-        )}
       </div>
+
+      {/* Location */}
+      <div className="border-t border-[#c0bfb9] pt-6">
+        <label className="block text-xs font-bold text-[#546048] uppercase tracking-widest mb-2">
+          Location
+        </label>
+        <div className="space-y-4">
+          <div>
+            <label htmlFor="edit-venue">Venue name</label>
+            <input
+              id="edit-venue"
+              value={venue}
+              placeholder="e.g. Eko Hotel, Lagos"
+              onChange={e => setVenue(e.target.value)}
+            />
+          </div>
+          <div>
+            <label htmlFor="edit-address">Full address</label>
+            <input
+              id="edit-address"
+              value={address}
+              placeholder="Street, City, State"
+              onChange={e => setAddress(e.target.value)}
+            />
+            <p className="text-xs text-[#546048] mt-1">
+              Shown under the venue name on your public event page.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* One warning covering both — a venue move matters to guests as much as
+          a time change, and showing two separate banners would be noise. */}
+      {(dateChanged || venueChanged) && (
+        <p className="text-xs text-amber-700 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2 leading-relaxed">
+          You&apos;re changing {dateChanged && venueChanged ? 'when and where' : dateChanged ? 'when' : 'where'} this
+          event happens. Guests who already RSVPed are <strong>not</strong> notified automatically — use
+          Broadcast on the Attendees tab to tell them. Their existing tickets stay valid.
+        </p>
+      )}
 
       {/* Description */}
       <div className="border-t border-[#c0bfb9] pt-6">

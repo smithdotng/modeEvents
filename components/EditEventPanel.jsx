@@ -12,8 +12,42 @@ import { getFormFields, downscaleImageFile, formatBytes, MAX_REQUEST_BYTES } fro
  */
 const MAX_SAVE_BYTES = 3.5 * 1024 * 1024;
 
+/**
+ * Format a stored date for a <input type="datetime-local">.
+ *
+ * The input expects LOCAL wall-clock time as "YYYY-MM-DDTHH:mm", while Mongo
+ * returns UTC ISO strings. Using toISOString().slice(0, 16) here is the classic
+ * trap: it shows UTC in the box, so an event would visibly shift by the user's
+ * offset every time the panel is opened and saved. Building the string from the
+ * local getters keeps it correct in any timezone.
+ */
+function toLocalInput(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+         `T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/**
+ * Convert the input's local wall-clock string back to an absolute instant.
+ *
+ * Sent as a full ISO string rather than the raw "YYYY-MM-DDTHH:mm", because the
+ * server would otherwise parse that bare form in ITS timezone (UTC on most
+ * hosts) rather than the host's — putting the event hours off. Resolving it to
+ * UTC here, where the browser knows the real offset, removes the ambiguity.
+ */
+function toISO(localValue) {
+  if (!localValue) return '';
+  const d = new Date(localValue);
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString();
+}
+
 export default function EditEventPanel({ event, onSave, onCancel }) {
   const [description, setDescription]     = useState(event.description || '');
+  const [date, setDate]                   = useState(() => toLocalInput(event.date));
+  const [endDate, setEndDate]             = useState(() => toLocalInput(event.endDate));
   const [formFields, setFormFields]       = useState(() => getFormFields(event));
   const [coverImage, setCoverImage]       = useState(event.coverImage || '');
   const [coverBusy, setCoverBusy]         = useState(false);
@@ -22,6 +56,9 @@ export default function EditEventPanel({ event, onSave, onCancel }) {
   const [frameZone, setFrameZone]         = useState(event.frameZone  || null);
   const [saving, setSaving]               = useState(false);
   const [error, setError]                 = useState('');
+
+  const dateChanged =
+    date !== toLocalInput(event.date) || endDate !== toLocalInput(event.endDate);
 
   async function handleCoverUpload(e) {
     const file = e.target.files?.[0];
@@ -60,6 +97,14 @@ export default function EditEventPanel({ event, onSave, onCancel }) {
       setError('Every question on the registration form needs a label.');
       return;
     }
+    if (!date) {
+      setError('An event needs a start date and time.');
+      return;
+    }
+    if (endDate && new Date(endDate) < new Date(date)) {
+      setError('The end time cannot be before the start time.');
+      return;
+    }
 
     // Only send images that actually changed. The PUT route ignores keys it
     // doesn't receive, so omitting them leaves the stored value untouched —
@@ -68,6 +113,11 @@ export default function EditEventPanel({ event, onSave, onCancel }) {
     const payload = { description, formFields, avatarsEnabled, frameZone };
     if (coverImage !== (event.coverImage || '')) payload.coverImage = coverImage;
     if (frameImage !== (event.frameImage || '')) payload.frameImage = frameImage;
+
+    // Compare in the input's own format so an unchanged date is never resent
+    // (and so a re-save can't drift the stored instant).
+    if (date !== toLocalInput(event.date)) payload.date = toISO(date);
+    if (endDate !== toLocalInput(event.endDate)) payload.endDate = toISO(endDate) || null;
 
     const body = JSON.stringify(payload);
 
@@ -150,6 +200,52 @@ export default function EditEventPanel({ event, onSave, onCancel }) {
             </div>
             <input type="file" accept="image/*" className="hidden" disabled={coverBusy} onChange={handleCoverUpload} />
           </label>
+        )}
+      </div>
+
+      {/* Date & time */}
+      <div className="border-t border-[#c0bfb9] pt-6">
+        <label className="block text-xs font-bold text-[#546048] uppercase tracking-widest mb-2">
+          Date &amp; Time
+        </label>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="edit-date">Starts *</label>
+            <input
+              id="edit-date"
+              type="datetime-local"
+              value={date}
+              onChange={e => setDate(e.target.value)}
+              required
+            />
+          </div>
+          <div>
+            <label htmlFor="edit-end-date">Ends</label>
+            <input
+              id="edit-end-date"
+              type="datetime-local"
+              value={endDate}
+              min={date || undefined}
+              onChange={e => setEndDate(e.target.value)}
+            />
+            {endDate && (
+              <button
+                type="button"
+                onClick={() => setEndDate('')}
+                className="mt-1 text-xs text-[#546048] hover:text-[#2a3b19] underline"
+              >
+                Clear end time
+              </button>
+            )}
+          </div>
+        </div>
+
+        {dateChanged && (
+          <p className="text-xs text-amber-700 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2 mt-3 leading-relaxed">
+            You&apos;re changing when this event happens. Guests who already RSVPed are
+            <strong> not</strong> notified automatically — use Broadcast on the Attendees tab
+            to tell them, and note their existing tickets stay valid.
+          </p>
         )}
       </div>
 

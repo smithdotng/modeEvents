@@ -2,16 +2,46 @@
 import { useState } from 'react';
 import FrameZoneSelector from '@/components/FrameZoneSelector';
 import FormBuilder from '@/components/FormBuilder';
-import { getFormFields } from '@/lib/formFields';
+import { getFormFields, downscaleImageFile, formatBytes, MAX_REQUEST_BYTES } from '@/lib/formFields';
+
+/**
+ * Everything on this panel is sent as one JSON PUT, and images are inline
+ * base64. The hosting platform rejects request bodies over MAX_REQUEST_BYTES
+ * with a bare 413, so the save is checked against a slightly lower budget in
+ * order to fail with a message that says which image is the problem.
+ */
+const MAX_SAVE_BYTES = 3.5 * 1024 * 1024;
 
 export default function EditEventPanel({ event, onSave, onCancel }) {
   const [description, setDescription]     = useState(event.description || '');
   const [formFields, setFormFields]       = useState(() => getFormFields(event));
+  const [coverImage, setCoverImage]       = useState(event.coverImage || '');
+  const [coverBusy, setCoverBusy]         = useState(false);
   const [avatarsEnabled, setAvatarsEnabled] = useState(!!event.avatarsEnabled);
   const [frameImage, setFrameImage]       = useState(event.frameImage || '');
   const [frameZone, setFrameZone]         = useState(event.frameZone  || null);
   const [saving, setSaving]               = useState(false);
   const [error, setError]                 = useState('');
+
+  async function handleCoverUpload(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-picking the same file after a removal
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { setError('Cover image must be an image file.'); return; }
+
+    setError('');
+    setCoverBusy(true);
+    try {
+      // Resized in the browser rather than size-capped, so a straight-from-phone
+      // photo is accepted instead of being rejected for being too large.
+      const { dataURL } = await downscaleImageFile(file);
+      setCoverImage(dataURL);
+    } catch (err) {
+      setError(err.message || 'Could not read that image.');
+    } finally {
+      setCoverBusy(false);
+    }
+  }
 
   function handleFrameUpload(e) {
     const file = e.target.files?.[0];
@@ -30,12 +60,40 @@ export default function EditEventPanel({ event, onSave, onCancel }) {
       setError('Every question on the registration form needs a label.');
       return;
     }
+
+    // Only send images that actually changed. The PUT route ignores keys it
+    // doesn't receive, so omitting them leaves the stored value untouched —
+    // and it keeps a description-only edit from re-uploading megabytes of
+    // base64 that would push the request over the platform's size limit.
+    const payload = { description, formFields, avatarsEnabled, frameZone };
+    if (coverImage !== (event.coverImage || '')) payload.coverImage = coverImage;
+    if (frameImage !== (event.frameImage || '')) payload.frameImage = frameImage;
+
+    const body = JSON.stringify(payload);
+
+    // Catch an oversized save here — the platform would otherwise return a
+    // bare 413 that we cannot turn into anything actionable.
+    if (body.length > MAX_SAVE_BYTES) {
+      const parts = [
+        { label: 'cover image', size: payload.coverImage?.length || 0 },
+        { label: 'avatar frame image', size: payload.frameImage?.length || 0 },
+      ].sort((a, b) => b.size - a.size);
+      const biggest = parts[0];
+      setError(
+        `This save comes to ${formatBytes(body.length)}, over the ${formatBytes(MAX_SAVE_BYTES)} limit. ` +
+        (biggest.size > 0
+          ? `The ${biggest.label} is the largest part at ${formatBytes(biggest.size)} — replace it with a smaller one.`
+          : 'Try shortening the description or removing some form questions.')
+      );
+      return;
+    }
+
     setSaving(true);
     setError('');
     const res = await fetch(`/api/events/${event._id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description, formFields, avatarsEnabled, frameImage, frameZone }),
+      body,
     });
     const data = await res.json();
     setSaving(false);
@@ -46,8 +104,57 @@ export default function EditEventPanel({ event, onSave, onCancel }) {
   return (
     <div className="space-y-6">
 
-      {/* Description */}
+      {/* Cover image */}
       <div>
+        <label className="block text-xs font-bold text-[#546048] uppercase tracking-widest mb-2">
+          Cover Image
+        </label>
+        <p className="text-xs text-[#546048] mb-3 leading-relaxed">
+          Shown at the top of your public event page. Large photos are resized automatically.
+        </p>
+
+        {coverImage ? (
+          <div className="space-y-3">
+            <img
+              src={coverImage}
+              alt="Event cover"
+              className="w-full max-w-sm rounded-xl object-cover aspect-square border border-[#c0bfb9]"
+            />
+            <div className="flex gap-3 items-center flex-wrap">
+              <label className={`flex items-center gap-2 bg-[#e8e7e1] border border-[#c0bfb9] rounded-xl px-4 py-2.5 transition-colors ${
+                coverBusy ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:border-[#2a3b19]'
+              }`}>
+                <span className="text-lg">🖼</span>
+                <span className="text-sm text-[#546048]">
+                  {coverBusy ? 'Processing…' : 'Replace cover image…'}
+                </span>
+                <input type="file" accept="image/*" className="hidden" disabled={coverBusy} onChange={handleCoverUpload} />
+              </label>
+              <button
+                type="button"
+                onClick={() => setCoverImage('')}
+                disabled={coverBusy}
+                className="text-xs text-red-500 hover:underline font-semibold disabled:opacity-40 disabled:no-underline"
+              >
+                ✕ Remove cover image
+              </button>
+            </div>
+          </div>
+        ) : (
+          <label className={`flex flex-col items-center justify-center h-36 max-w-sm rounded-xl border-2 border-dashed border-[#c0bfb9] transition-colors bg-[#e8e7e1] ${
+            coverBusy ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:border-[#2a3b19]'
+          }`}>
+            <div className="text-center text-[#546048] p-4">
+              <p className="text-3xl mb-2">🖼</p>
+              <p className="text-sm">{coverBusy ? 'Processing…' : 'Click to upload a cover image'}</p>
+            </div>
+            <input type="file" accept="image/*" className="hidden" disabled={coverBusy} onChange={handleCoverUpload} />
+          </label>
+        )}
+      </div>
+
+      {/* Description */}
+      <div className="border-t border-[#c0bfb9] pt-6">
         <label className="block text-xs font-bold text-[#546048] uppercase tracking-widest mb-2">
           Event Description
         </label>

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
 import Event from '@/models/Event';
 import Attendee from '@/models/Attendee';
-import { getFormFields, collectSubmission } from '@/lib/formFields';
+import { getFormFields, collectSubmission, normalizePhone } from '@/lib/formFields';
 
 // POST /api/public/[code]/rsvp — submit RSVP (no auth required)
 export async function POST(req, { params }) {
@@ -41,29 +41,57 @@ export async function POST(req, { params }) {
   if (errors.length) {
     return NextResponse.json({ error: errors[0], errors }, { status: 400 });
   }
-  if (!core.name || !core.email) {
-    return NextResponse.json({ error: 'Name and email are required.' }, { status: 400 });
+  if (!core.name) {
+    return NextResponse.json({ error: 'Name is required.' }, { status: 400 });
   }
 
-  // Check if already registered
-  const existing = await Attendee.findOne({ eventId: event._id, email: core.email.toLowerCase() });
-  if (existing) {
-    return NextResponse.json({
-      error: 'You have already registered for this event.',
-      ticketCode: existing.ticketCode,
-      compositeImage: existing.compositeImage,
-    }, { status: 409 });
+  const email = (core.email || '').toLowerCase();
+  const phoneKey = normalizePhone(core.phone);
+
+  // Duplicate check. Phone is the primary identity because email is optional;
+  // whichever contact details were given are both checked, so a guest cannot
+  // slip a second registration through by supplying only the other one.
+  const orClauses = [];
+  if (phoneKey) orClauses.push({ phoneKey });
+  if (email) orClauses.push({ email });
+
+  if (orClauses.length) {
+    const existing = await Attendee.findOne({ eventId: event._id, $or: orClauses });
+    if (existing) {
+      return NextResponse.json({
+        error: 'You have already registered for this event.',
+        ticketCode: existing.ticketCode,
+        compositeImage: existing.compositeImage,
+      }, { status: 409 });
+    }
   }
 
-  const attendee = await Attendee.create({
-    eventId: event._id,
-    name: core.name.trim(),
-    email: core.email.toLowerCase(),
-    phone: core.phone || '',
-    responses,
-    photo: photo || '',
-    compositeImage: compositeImage || '',
-  });
+  let attendee;
+  try {
+    attendee = await Attendee.create({
+      eventId: event._id,
+      name: core.name.trim(),
+      email,
+      phone: core.phone || '',
+      responses,
+      photo: photo || '',
+      compositeImage: compositeImage || '',
+    });
+  } catch (err) {
+    // Two people submitting at the same moment can both pass the check above;
+    // the unique index is the real guard, so translate its error rather than
+    // returning a 500.
+    if (err?.code === 11000) {
+      const existing = await Attendee.findOne({ eventId: event._id, $or: orClauses });
+      return NextResponse.json({
+        error: 'You have already registered for this event.',
+        ticketCode: existing?.ticketCode,
+        compositeImage: existing?.compositeImage,
+      }, { status: 409 });
+    }
+    console.error('[rsvp]', err);
+    return NextResponse.json({ error: 'Could not save your RSVP. Please try again.' }, { status: 500 });
+  }
 
   return NextResponse.json({
     message: 'RSVP confirmed!',

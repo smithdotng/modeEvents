@@ -50,8 +50,11 @@ export async function POST(req, { params }) {
       </div>
     `;
 
-    // Send in batches of 50 (Resend limit per call)
-    const emails = attendees.map(a => a.email);
+    // Send in batches of 50 (Resend limit per call).
+    // Email is optional, so skip attendees who gave only a phone number — a
+    // blank address makes Resend reject the entire batch.
+    const emails = attendees.map(a => a.email).filter(e => e && e.trim());
+    const skipped = attendees.length - emails.length;
     const errors = [];
     let sent = 0;
 
@@ -65,7 +68,7 @@ export async function POST(req, { params }) {
       }
     }
 
-    return NextResponse.json({ sent, errors });
+    return NextResponse.json({ sent, skipped, errors });
   }
 
   // ── WhatsApp — return contacts + message for frontend ─────────────────────

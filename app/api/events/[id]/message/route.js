@@ -21,6 +21,12 @@ export async function POST(req, { params }) {
 
   // ── Email via Resend ───────────────────────────────────────────────────────
   if (channel === 'email') {
+    if (!attendee.email?.trim()) {
+      return NextResponse.json(
+        { error: `${attendee.name} did not give an email address — message them on WhatsApp instead.` },
+        { status: 400 }
+      );
+    }
     if (!process.env.RESEND_API_KEY) {
       return NextResponse.json({ error: 'Email not configured — add RESEND_API_KEY.' }, { status: 500 });
     }

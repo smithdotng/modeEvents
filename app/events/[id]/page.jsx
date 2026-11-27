@@ -5,6 +5,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import BroadcastModal from '@/components/BroadcastModal';
 import MessageModal from '@/components/MessageModal';
+import SendTicketsModal from '@/components/SendTicketsModal';
 import EditEventPanel from '@/components/EditEventPanel';
 import { getFormFields, formatAnswer, CORE_KEYS } from '@/lib/formFields';
 
@@ -77,6 +78,7 @@ export default function ManageEventPage() {
   // Modals + edit mode
   const [showBroadcast, setShowBroadcast] = useState(false);
   const [messageTarget, setMessageTarget] = useState(null);
+  const [ticketTargets, setTicketTargets] = useState(null); // attendees to send passes to
   const [editing, setEditing] = useState(false);
   const [expanded, setExpanded] = useState({}); // attendeeId → show custom answers
 
@@ -328,6 +330,14 @@ export default function ManageEventPage() {
               ⬇ Export CSV
             </button>
             <button
+              onClick={() => setTicketTargets(filtered)}
+              disabled={filtered.length === 0}
+              title={search ? 'Sends passes to the attendees matching your search' : 'Sends every attendee their QR pass'}
+              className="px-4 py-2 rounded-xl text-sm font-bold border border-[#2a3b19] text-[#2a3b19] hover:bg-[#2a3b19] hover:text-white transition-all whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              🎟 Send passes{search && filtered.length !== attendees.length ? ` (${filtered.length})` : ''}
+            </button>
+            <button
               onClick={() => setShowBroadcast(true)}
               className="px-4 py-2 rounded-xl text-sm font-bold bg-[#2a3b19] text-white hover:opacity-90 transition-opacity whitespace-nowrap"
             >
@@ -386,13 +396,22 @@ export default function ManageEventPage() {
                           </button>
                         </td>
                         <td className="px-4 py-3">
-                          <button
-                            onClick={() => setMessageTarget(a)}
-                            title="Send message"
-                            className="px-3 py-1.5 rounded-lg text-xs font-bold border border-[#c0bfb9] text-[#546048] hover:text-[#2a3b19] hover:border-[#2a3b19] transition-all whitespace-nowrap"
-                          >
-                            ✉️ Message
-                          </button>
+                          <div className="flex gap-1.5">
+                            <button
+                              onClick={() => setTicketTargets([a])}
+                              title={`Send ${a.name} their QR pass`}
+                              className="px-3 py-1.5 rounded-lg text-xs font-bold border border-[#2a3b19] text-[#2a3b19] hover:bg-[#2a3b19] hover:text-white transition-all whitespace-nowrap"
+                            >
+                              🎟 Pass
+                            </button>
+                            <button
+                              onClick={() => setMessageTarget(a)}
+                              title="Send message"
+                              className="px-3 py-1.5 rounded-lg text-xs font-bold border border-[#c0bfb9] text-[#546048] hover:text-[#2a3b19] hover:border-[#2a3b19] transition-all whitespace-nowrap"
+                            >
+                              ✉️ Message
+                            </button>
+                          </div>
                         </td>
                       </tr>
                       {expanded[a._id] && a.responses?.length > 0 && (
@@ -464,6 +483,12 @@ export default function ManageEventPage() {
                         className="flex-1 py-2 rounded-lg text-xs font-bold border border-[#c0bfb9] text-[#546048] hover:border-[#7ab648] transition-all"
                       >
                         {a.checkedIn ? 'Undo check-in' : 'Check in'}
+                      </button>
+                      <button
+                        onClick={() => setTicketTargets([a])}
+                        className="flex-1 py-2 rounded-lg text-xs font-bold border border-[#2a3b19] text-[#2a3b19] hover:bg-[#2a3b19] hover:text-white transition-all"
+                      >
+                        🎟 Pass
                       </button>
                       <button
                         onClick={() => setMessageTarget(a)}
@@ -609,6 +634,14 @@ export default function ManageEventPage() {
           eventTitle={event.title}
           attendee={messageTarget}
           onClose={() => setMessageTarget(null)}
+        />
+      )}
+      {ticketTargets && ticketTargets.length > 0 && (
+        <SendTicketsModal
+          eventId={id}
+          eventTitle={event.title}
+          attendees={ticketTargets}
+          onClose={() => setTicketTargets(null)}
         />
       )}
     </div>

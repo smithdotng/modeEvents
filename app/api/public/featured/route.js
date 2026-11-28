@@ -3,6 +3,17 @@ import { connectDB } from '@/lib/mongodb';
 import Event from '@/models/Event';
 import Attendee from '@/models/Attendee';
 
+/*
+ * Rendered per request, never at build time.
+ *
+ * this route reads featured events, so without this Next connects to MongoDB during
+ * "Collecting page data" and the whole deployment fails if the database
+ * is unreachable from the build machine — which it is whenever Atlas's IP
+ * allowlist covers the serverless runtime but not the builder. The data is
+ * live anyway, so there is nothing to gain from prerendering it.
+ */
+export const dynamic = 'force-dynamic';
+
 // GET /api/public/featured — featured published events for the landing page
 export async function GET() {
   await connectDB();

@@ -2,6 +2,17 @@ import EventRSVPClient from '@/components/EventRSVPClient';
 import { connectDB } from '@/lib/mongodb';
 import Event from '@/models/Event';
 
+/*
+ * Rendered per request, never at build time.
+ *
+ * generateMetadata reads the event, so without this Next connects to MongoDB during
+ * "Collecting page data" and the whole deployment fails if the database
+ * is unreachable from the build machine — which it is whenever Atlas's IP
+ * allowlist covers the serverless runtime but not the builder. The data is
+ * live anyway, so there is nothing to gain from prerendering it.
+ */
+export const dynamic = 'force-dynamic';
+
 export async function generateMetadata({ params }) {
   try {
     await connectDB();

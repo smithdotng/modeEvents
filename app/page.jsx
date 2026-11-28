@@ -3,6 +3,17 @@ import { connectDB } from '@/lib/mongodb';
 import Event from '@/models/Event';
 import Attendee from '@/models/Attendee';
 
+/*
+ * Rendered per request, never at build time.
+ *
+ * the landing page reads featured events, so without this Next connects to MongoDB during
+ * "Collecting page data" and the whole deployment fails if the database
+ * is unreachable from the build machine — which it is whenever Atlas's IP
+ * allowlist covers the serverless runtime but not the builder. The data is
+ * live anyway, so there is nothing to gain from prerendering it.
+ */
+export const dynamic = 'force-dynamic';
+
 export const metadata = {
   title: 'Mode Events — Events, made beautifully simple.',
   description: 'Create events, collect free RSVPs, generate personalised avatar cards for your guests, and manage check-ins — all in one place.',
